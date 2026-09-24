@@ -1,16 +1,20 @@
 import logging
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from datetime import datetime, time, timezone
+from typing import Any, Dict, List, Optional, Tuple
 import requests
 
 from config import (
     ACTIVE_DAYS,
     DESTINATION_FILTER,
+    END_HOUR,
+    END_MINUTE,
     FORCE_CHECK,
     LINE_REF,
     MONITORING_REF,
     PRIM_API_KEY,
     PRIM_API_URL,
+    START_HOUR,
+    START_MINUTE,
     TIMEZONE,
     WINDOW_END,
     WINDOW_START,
@@ -19,34 +23,93 @@ from config import (
 logger = logging.getLogger("null-track.monitor")
 
 
-def is_within_monitoring_window(dt: Optional[datetime] = None) -> bool:
+def is_within_monitoring_window(
+    schedule: Optional[Dict[str, Any]] = None,
+    dt: Optional[datetime] = None,
+) -> Tuple[bool, str]:
     """
-    Vérifie si la date/heure actuelle se situe dans la plage horaire
-    et les jours de surveillance configurés (par ex. Lundi-Vendredi 07h00 - 09h30).
+    Vérifie si la date/heure actuelle respecte tous les critères de surveillance :
+    1. Surveillance globale activée (enabled)
+    2. Période de mise en veille / pause (paused_until)
+    3. Jour de la semaine actif (active_days)
+    4. Plage horaire (start_hour:start_minute à end_hour:end_minute)
+    5. Intervalle de fréquence (frequency_minutes)
+
+    Retourne (is_active: bool, reason: str).
     """
     if FORCE_CHECK:
         logger.info("FORCE_CHECK est activé : vérification forcée hors plage.")
-        return True
+        return True, "FORCE_CHECK actif"
 
     now = dt or datetime.now(TIMEZONE)
     current_day = now.weekday()
     current_time = now.time()
 
-    if current_day not in ACTIVE_DAYS:
-        logger.info(
-            f"Jour non surveillé ({now.strftime('%A')}, index {current_day}). "
-            f"Jours actifs configurés : {ACTIVE_DAYS}"
-        )
-        return False
+    cfg = schedule or {}
 
-    if not (WINDOW_START <= current_time <= WINDOW_END):
+    # 1. Vérification interrupteur principal
+    if not cfg.get("enabled", True):
+        logger.info("Surveillance désactivée par l'utilisateur.")
+        return False, "Surveillance désactivée dans l'application"
+
+    # 2. Vérification de la pause temporaire (Snooze)
+    paused_until = cfg.get("paused_until")
+    if paused_until:
+        try:
+            if isinstance(paused_until, (int, float)):
+                pause_epoch = paused_until / 1000.0 if paused_until > 1e11 else float(paused_until)
+                pause_dt = datetime.fromtimestamp(pause_epoch, tz=timezone.utc)
+            elif isinstance(paused_until, str):
+                pause_dt = datetime.fromisoformat(paused_until.replace("Z", "+00:00"))
+            else:
+                pause_dt = paused_until
+
+            if now.astimezone(timezone.utc) < pause_dt.astimezone(timezone.utc):
+                pause_str = pause_dt.astimezone(TIMEZONE).strftime("%H:%M")
+                logger.info(f"Notifications en pause jusqu'à {pause_str}.")
+                return False, f"Notifications en pause jusqu'à {pause_str}"
+        except Exception as e:
+            logger.warning(f"Erreur lors de la vérification de paused_until ({paused_until}): {e}")
+
+    # 3. Vérification des jours actifs choisis par l'utilisateur
+    active_days = cfg.get("active_days")
+    if active_days is None:
+        active_days = ACTIVE_DAYS
+    if current_day not in active_days:
+        day_name = now.strftime('%A')
+        logger.info(
+            f"Jour non surveillé ({day_name}, index {current_day}). "
+            f"Jours actifs : {active_days}"
+        )
+        return False, f"Jour non surveillé ({day_name})"
+
+    # 4. Vérification de la plage horaire définie
+    start_h = cfg.get("start_hour", START_HOUR)
+    start_m = cfg.get("start_minute", START_MINUTE)
+    end_h = cfg.get("end_hour", END_HOUR)
+    end_m = cfg.get("end_minute", END_MINUTE)
+
+    w_start = time(int(start_h), int(start_m))
+    w_end = time(int(end_h), int(end_m))
+
+    if not (w_start <= current_time <= w_end):
         logger.info(
             f"Heure actuelle ({current_time.strftime('%H:%M:%S')}) en dehors de la plage "
-            f"({WINDOW_START.strftime('%H:%M')} - {WINDOW_END.strftime('%H:%M')})."
+            f"({w_start.strftime('%H:%M')} - {w_end.strftime('%H:%M')})."
         )
-        return False
+        return False, f"En dehors de la plage horaire ({w_start.strftime('%H:%M')} - {w_end.strftime('%H:%M')})"
 
-    return True
+    # 5. Vérification de l'intervalle de fréquence
+    freq_min = int(cfg.get("frequency_minutes", 3))
+    last_check = cfg.get("last_check_timestamp")
+    if last_check and freq_min > 0:
+        elapsed_sec = now.timestamp() - float(last_check)
+        min_interval_sec = (freq_min * 60) - 20  # Tolérance de 20s
+        if elapsed_sec < min_interval_sec:
+            remaining = int(min_interval_sec - elapsed_sec)
+            return False, f"Fréquence de {freq_min} min respectée (prochain appel dans ~{remaining}s)"
+
+    return True, "OK"
 
 
 def fetch_stop_monitoring(

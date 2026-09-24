@@ -26,13 +26,19 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+import androidx.compose.material.icons.filled.PauseCircle
+import androidx.compose.material.icons.filled.Tune
+import com.nulltrack.data.ScheduleConfig
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     alerts: List<TrainAlert>,
     isSubscribed: Boolean,
+    schedule: ScheduleConfig,
     onTestAlertClick: () -> Unit,
-    onClearHistoryClick: () -> Unit
+    onClearHistoryClick: () -> Unit,
+    onSettingsClick: () -> Unit
 ) {
     Scaffold(
         topBar = {
@@ -62,6 +68,15 @@ fun HomeScreen(
                         )
                     }
                 },
+                actions = {
+                    IconButton(onClick = onSettingsClick) {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = "Paramètres de surveillance",
+                            tint = if (schedule.isPaused()) Color(0xFFE65100) else TransilienN
+                        )
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = SurfaceLight
                 )
@@ -78,7 +93,11 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             // Carte de statut de la surveillance
-            MonitoringStatusCard(isSubscribed = isSubscribed)
+            MonitoringStatusCard(
+                isSubscribed = isSubscribed,
+                schedule = schedule,
+                onSettingsClick = onSettingsClick
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -142,7 +161,13 @@ fun HomeScreen(
 }
 
 @Composable
-fun MonitoringStatusCard(isSubscribed: Boolean) {
+fun MonitoringStatusCard(
+    isSubscribed: Boolean,
+    schedule: ScheduleConfig,
+    onSettingsClick: () -> Unit
+) {
+    val isPaused = schedule.isPaused()
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -161,18 +186,24 @@ fun MonitoringStatusCard(isSubscribed: Boolean) {
                     fontSize = 16.sp,
                     color = TextPrimary
                 )
-                // Badge Actif / Inactif
+                // Badge Actif / En pause / Désactivé
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    val (icon, tint, label) = when {
+                        !schedule.enabled -> Triple(Icons.Default.Warning, Color(0xFFD32F2F), "Désactivé")
+                        isPaused -> Triple(Icons.Default.PauseCircle, Color(0xFFE65100), "En pause")
+                        isSubscribed -> Triple(Icons.Default.CheckCircle, SuccessGreen, "Actif")
+                        else -> Triple(Icons.Default.CheckCircle, TextSecondary, "Connexion...")
+                    }
                     Icon(
-                        imageVector = Icons.Default.CheckCircle,
+                        imageVector = icon,
                         contentDescription = null,
-                        tint = SuccessGreen,
+                        tint = tint,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = if (isSubscribed) "Actif" else "Connexion...",
-                        color = SuccessGreen,
+                        text = label,
+                        color = tint,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -181,17 +212,43 @@ fun MonitoringStatusCard(isSubscribed: Boolean) {
 
             Divider(modifier = Modifier.padding(vertical = 10.dp), color = Color(0xFFEEEEEE))
 
+            if (isPaused) {
+                Text(
+                    text = "⏸️ En pause jusqu'à ${schedule.getPausedRemainingText() ?: ""}",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFFE65100)
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+
             Text(
-                text = "⏰ Plage surveillée : Lun-Ven, 07h00 - 09h30",
+                text = "📅 Jours actifs : ${schedule.formatActiveDays()}",
                 fontSize = 13.sp,
                 color = TextSecondary
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "📡 Fréquence : Toutes les 2 min via Cloud Scheduler",
+                text = "⏰ Plage horaire : ${schedule.formatTimeRange()}",
                 fontSize = 13.sp,
                 color = TextSecondary
             )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "📡 Fréquence : Toutes les ${schedule.frequencyMinutes} min (uniquement dans la plage)",
+                fontSize = 13.sp,
+                color = TextSecondary
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+            OutlinedButton(
+                onClick = onSettingsClick,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(vertical = 6.dp)
+            ) {
+                Text("Modifier les horaires, jours & mise en veille", fontSize = 12.sp)
+            }
         }
     }
 }

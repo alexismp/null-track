@@ -26,9 +26,14 @@ import com.nulltrack.service.NullTrackMessagingService
 import com.nulltrack.ui.HomeScreen
 import com.nulltrack.ui.theme.NullTrackTheme
 
+import androidx.compose.runtime.remember
+import com.nulltrack.data.ScheduleRepository
+import com.nulltrack.ui.SettingsSheet
+
 class MainActivity : ComponentActivity() {
 
     private lateinit var repository: AlertRepository
+    private lateinit var scheduleRepository: ScheduleRepository
     private var isSubscribedToTopic by mutableStateOf(false)
 
     // Demande de permission POST_NOTIFICATIONS pour Android 13+ (API 33+)
@@ -49,6 +54,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repository = AlertRepository.getInstance(applicationContext)
+        scheduleRepository = ScheduleRepository.getInstance(applicationContext)
 
         checkNotificationPermission()
         subscribeToFCMTopic()
@@ -56,13 +62,36 @@ class MainActivity : ComponentActivity() {
         setContent {
             NullTrackTheme {
                 val alerts by repository.alerts.collectAsState()
+                val schedule by scheduleRepository.schedule.collectAsState()
+                var showSettingsSheet by remember { mutableStateOf(false) }
 
                 HomeScreen(
                     alerts = alerts,
                     isSubscribed = isSubscribedToTopic,
+                    schedule = schedule,
                     onTestAlertClick = { sendLocalTestAlert() },
-                    onClearHistoryClick = { repository.clearAlerts() }
+                    onClearHistoryClick = { repository.clearAlerts() },
+                    onSettingsClick = { showSettingsSheet = true }
                 )
+
+                if (showSettingsSheet) {
+                    SettingsSheet(
+                        schedule = schedule,
+                        onDismiss = { showSettingsSheet = false },
+                        onSaveSchedule = { newSchedule ->
+                            scheduleRepository.saveConfig(newSchedule)
+                        },
+                        onPauseHours = { hours ->
+                            scheduleRepository.pauseForHours(hours)
+                        },
+                        onPauseToday = {
+                            scheduleRepository.pauseForToday()
+                        },
+                        onResumeNow = {
+                            scheduleRepository.resumeNow()
+                        }
+                    )
+                }
             }
         }
     }

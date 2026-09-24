@@ -50,7 +50,12 @@ WINDOW_END = time(END_HOUR, END_MINUTE)
 # Option pour forcer l'exécution hors plage horaire (utile pour les tests et démos)
 FORCE_CHECK = os.getenv("FORCE_CHECK", "false").lower() in ("true", "1", "yes")
 
+# Fréquence par défaut : 3 minutes
+DEFAULT_FREQUENCY_MINUTES = int(os.getenv("DEFAULT_FREQUENCY_MINUTES", "3"))
+
 # --- Firebase & Firestore Configuration ---
 FCM_TOPIC = os.getenv("FCM_TOPIC", "trains_meudon_montparnasse")
 FIRESTORE_COLLECTION = os.getenv("FIRESTORE_COLLECTION", "notified_trains")
+SETTINGS_COLLECTION = os.getenv("SETTINGS_COLLECTION", "settings")
+SCHEDULE_DOCUMENT = os.getenv("SCHEDULE_DOCUMENT", "monitoring_schedule")
 FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "")

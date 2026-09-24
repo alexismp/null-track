@@ -1,11 +1,25 @@
 import logging
 import os
 from typing import Any, Dict
-import functions_framework
-from flask import Request, jsonify
+try:
+    import functions_framework
+    from flask import Request, jsonify
+    _HAS_FRAMEWORK = True
+except ImportError:
+    _HAS_FRAMEWORK = False
+    functions_framework = None
+    Request = Any
+    def jsonify(data):
+        return data
 
 from fcm_client import send_cancellation_alert
-from firestore_client import is_train_notified, mark_train_as_notified
+from firestore_client import (
+    get_monitoring_schedule,
+    is_train_notified,
+    mark_train_as_notified,
+    update_last_check_timestamp,
+    update_monitoring_schedule,
+)
 from monitor import extract_cancelled_trains, fetch_stop_monitoring, is_within_monitoring_window
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -15,19 +29,32 @@ logger = logging.getLogger("null-track.main")
 def run_cancellation_check(force: bool = False) -> Dict[str, Any]:
     """
     Exécute le cycle complet de vérification :
-    1. Validation de la plage horaire
-    2. Appel API IDFM PRIM
+    1. Validation des critères dynamiques (jours choisis, plage horaire, pause/snooze, fréquence)
+    2. Appel API IDFM PRIM (UNIQUEMENT si les critères sont validés)
     3. Détection des suppressions
     4. Déduplication et envoi des notifications FCM
     """
-    if not force and not is_within_monitoring_window():
+    schedule = get_monitoring_schedule()
+    is_active, reason = is_within_monitoring_window(schedule=schedule)
+
+    if not force and not is_active:
         return {
             "status": "skipped",
-            "message": "En dehors de la plage horaire ou des jours de surveillance.",
+            "message": reason,
             "alerts_sent": 0,
+            "schedule": {
+                "enabled": schedule.get("enabled", True),
+                "active_days": schedule.get("active_days"),
+                "hours": f"{schedule.get('start_hour', 7):02d}h{schedule.get('start_minute', 0):02d} - {schedule.get('end_hour', 9):02d}h{schedule.get('end_minute', 30):02d}",
+                "paused_until": schedule.get("paused_until"),
+            }
         }
 
     try:
+        # Met à jour le timestamp de la vérification pour respecter la fréquence
+        update_last_check_timestamp()
+
+        # Appel API PRIM garanti uniquement lors des jours/horaires demandés
         data = fetch_stop_monitoring()
         cancelled_trains = extract_cancelled_trains(data)
 
@@ -70,18 +97,32 @@ def run_cancellation_check(force: bool = False) -> Dict[str, Any]:
         }
 
 
-@functions_framework.http
 def check_trains_http(request: Request):
     """
-    Point d'entrée HTTP pour Google Cloud Functions (Gen2) ou Cloud Run,
-    déclenché par Cloud Scheduler.
+    Point d'entrée HTTP pour Cloud Run functions,
+    déclenché par Cloud Scheduler ou l'application Android.
     """
-    # Possibilité de forcer la vérification via ?force=true pour tests manuels
+    # 1. Endpoint de lecture de configuration : GET ?action=get_config ou path /config
+    action = request.args.get("action", "")
+    if request.method == "GET" and (action == "get_config" or request.path.endswith("/config")):
+        return jsonify(get_monitoring_schedule()), 200
+
+    # 2. Endpoint de mise à jour de configuration : POST ?action=set_config ou path /config
+    if request.method == "POST" and (action == "set_config" or request.path.endswith("/config")):
+        body = request.get_json(silent=True) or {}
+        updated = update_monitoring_schedule(body)
+        return jsonify({"status": "success", "config": updated}), 200
+
+    # 3. Cycle régulier de surveillance des trains
     force_param = request.args.get("force", "").lower() in ("true", "1", "yes")
     result = run_cancellation_check(force=force_param)
 
     status_code = 200 if result.get("status") in ("success", "skipped") else 500
     return jsonify(result), status_code
+
+
+if functions_framework is not None:
+    check_trains_http = functions_framework.http(check_trains_http)
 
 
 if __name__ == "__main__":

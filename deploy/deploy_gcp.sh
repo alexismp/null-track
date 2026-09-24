@@ -57,11 +57,11 @@ FUNCTION_URL=$(gcloud functions describe "${SERVICE_NAME}" --gen2 --region="${RE
 echo "✅ Cloud Function déployée avec succès : ${FUNCTION_URL}"
 
 # 3. Création ou mise à jour du job Cloud Scheduler
-echo "⏰ Configuration du job Cloud Scheduler (Lundi au Vendredi, 07h00 - 09h30, toutes les 2 min)..."
+echo "⏰ Configuration du job Cloud Scheduler (Toutes les 3 minutes)..."
 if gcloud scheduler jobs describe "${SCHEDULER_JOB_NAME}" --location="${REGION}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
     gcloud scheduler jobs update http "${SCHEDULER_JOB_NAME}" \
         --location="${REGION}" \
-        --schedule="*/2 7-9 * * 1-5" \
+        --schedule="*/3 * * * *" \
         --time-zone="Europe/Paris" \
         --uri="${FUNCTION_URL}" \
         --http-method=GET \
@@ -70,7 +70,7 @@ if gcloud scheduler jobs describe "${SCHEDULER_JOB_NAME}" --location="${REGION}"
 else
     gcloud scheduler jobs create http "${SCHEDULER_JOB_NAME}" \
         --location="${REGION}" \
-        --schedule="*/2 7-9 * * 1-5" \
+        --schedule="*/3 * * * *" \
         --time-zone="Europe/Paris" \
         --uri="${FUNCTION_URL}" \
         --http-method=GET \

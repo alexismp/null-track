@@ -235,6 +235,45 @@ def check_trains_http(request: Request):
             "config": updated,
         }), 200
 
+    # 7. Endpoint pour simuler l'envoi d'une alerte d'annulation ou de retard (Test Push)
+    if action in ("simulate_alert", "simulate_cancellation", "test_alert") or request.path.endswith("/simulate-alert"):
+        body = request.get_json(silent=True) or {}
+        mission = str(request.args.get("mission", body.get("mission", "ROPO")))
+        dep_time = str(request.args.get("time", body.get("time", "08:12")))
+        direction = str(request.args.get("direction", body.get("direction", "TO_PARIS")))
+        is_delay = str(request.args.get("type", body.get("type", "cancel"))).lower() in ("delay", "retard")
+        delay_min = int(request.args.get("delay", body.get("delay", 10)))
+
+        is_to_paris = direction != "TO_MEUDON"
+        dest = "Paris-Montparnasse" if is_to_paris else "Meudon"
+        stop = "Meudon" if is_to_paris else "Paris-Montparnasse"
+
+        mock_train = {
+            "id": f"simulated_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}",
+            "mission_code": mission,
+            "departure_time": dep_time,
+            "stop_name": stop,
+            "destination": dest,
+            "direction_code": direction,
+            "direction_label": "Meudon ➔ Paris-Montparnasse" if is_to_paris else "Paris-Montparnasse ➔ Meudon",
+            "status": f"RETARDÉ (+{delay_min} min)" if is_delay else "ANNULÉ",
+            "status_code": "DELAYED" if is_delay else "CANCELLED",
+            "is_cancelled": not is_delay,
+            "delay_minutes": delay_min if is_delay else 0,
+        }
+
+        success = send_cancellation_alert(mock_train)
+        return jsonify({
+            "status": "success" if success else "warning",
+            "fcm_sent": success,
+            "simulated_train": mock_train,
+            "message": (
+                "Notification push envoyée avec succès sur le topic FCM"
+                if success
+                else "Alerte simulée (Firebase Admin non connecté ou indisponible)"
+            ),
+        }), 200
+
     # 5. Endpoint pour consulter tous les départs : GET ?action=departures ou path /departures
     if request.method == "GET" and (action == "departures" or request.path.endswith("/departures")):
         fresh = request.args.get("fresh", "").lower() in ("true", "1", "yes")

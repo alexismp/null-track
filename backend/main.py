@@ -14,13 +14,20 @@ except ImportError:
 
 from fcm_client import send_cancellation_alert
 from firestore_client import (
+    get_live_departures,
     get_monitoring_schedule,
     is_train_notified,
     mark_train_as_notified,
+    save_live_departures,
     update_last_check_timestamp,
     update_monitoring_schedule,
 )
-from monitor import extract_cancelled_trains, fetch_stop_monitoring, is_within_monitoring_window
+from monitor import (
+    extract_all_departures,
+    extract_cancelled_trains,
+    fetch_stop_monitoring,
+    is_within_monitoring_window,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("null-track.main")
@@ -56,6 +63,10 @@ def run_cancellation_check(force: bool = False) -> Dict[str, Any]:
 
         # Appel API PRIM garanti uniquement lors des jours/horaires demandés
         data = fetch_stop_monitoring()
+        # Enregistre le tableau complet des départs pour consultation temps réel
+        all_deps = extract_all_departures(data)
+        save_live_departures(all_deps)
+
         cancelled_trains = extract_cancelled_trains(data)
 
         alerts_sent = 0
@@ -83,6 +94,7 @@ def run_cancellation_check(force: bool = False) -> Dict[str, Any]:
         return {
             "status": "success",
             "cancelled_detected": len(cancelled_trains),
+            "total_departures": len(all_deps),
             "alerts_sent": alerts_sent,
             "already_notified": skipped_already_notified,
             "notified_trains": details,
@@ -102,8 +114,9 @@ def check_trains_http(request: Request):
     Point d'entrée HTTP pour Cloud Run functions,
     déclenché par Cloud Scheduler ou l'application Android.
     """
-    # 1. Endpoint de lecture de configuration : GET ?action=get_config ou path /config
     action = request.args.get("action", "")
+
+    # 1. Endpoint de lecture de configuration : GET ?action=get_config ou path /config
     if request.method == "GET" and (action == "get_config" or request.path.endswith("/config")):
         return jsonify(get_monitoring_schedule()), 200
 
@@ -113,7 +126,27 @@ def check_trains_http(request: Request):
         updated = update_monitoring_schedule(body)
         return jsonify({"status": "success", "config": updated}), 200
 
-    # 3. Cycle régulier de surveillance des trains
+    # 3. Endpoint pour consulter tous les départs : GET ?action=departures ou path /departures
+    if request.method == "GET" and (action == "departures" or request.path.endswith("/departures")):
+        fresh = request.args.get("fresh", "").lower() in ("true", "1", "yes")
+        live = get_live_departures()
+        if fresh or not live.get("departures"):
+            try:
+                raw_data = fetch_stop_monitoring()
+                deps = extract_all_departures(raw_data)
+                save_live_departures(deps)
+                live = {
+                    "status": "success",
+                    "stop_name": "Meudon",
+                    "departures": deps,
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }
+            except Exception as e:
+                logger.error(f"Erreur récupération des départs : {e}")
+                return jsonify({"status": "error", "message": str(e), "departures": []}), 500
+        return jsonify(live), 200
+
+    # 4. Cycle régulier de surveillance des trains
     force_param = request.args.get("force", "").lower() in ("true", "1", "yes")
     result = run_cancellation_check(force=force_param)
 

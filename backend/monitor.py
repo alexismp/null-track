@@ -238,3 +238,128 @@ def extract_cancelled_trains(data: Dict[str, Any]) -> List[Dict[str, Any]]:
         logger.error(f"Erreur lors du parsing des données SIRI Lite: {e}", exc_info=True)
 
     return cancelled_trains
+
+
+def compute_delay_and_status(
+    aimed_iso: Optional[str],
+    expected_iso: Optional[str],
+    is_cancelled: bool,
+    dep_status_raw: str = "",
+) -> Tuple[str, str, int]:
+    """
+    Retourne (status, status_label, delay_minutes).
+    status: 'CANCELLED', 'DELAYED', 'ON_TIME'
+    """
+    if is_cancelled:
+        return "CANCELLED", "Supprimé", 0
+
+    if not aimed_iso or not expected_iso:
+        if "delayed" in dep_status_raw.lower():
+            return "DELAYED", "Retardé", 0
+        return "ON_TIME", "À l'heure", 0
+
+    try:
+        aimed_dt = datetime.fromisoformat(aimed_iso.replace("Z", "+00:00"))
+        exp_dt = datetime.fromisoformat(expected_iso.replace("Z", "+00:00"))
+        delay_sec = (exp_dt - aimed_dt).total_seconds()
+        delay_min = int(round(delay_sec / 60.0))
+
+        if delay_min >= 2:
+            return "DELAYED", f"+{delay_min} min", delay_min
+        elif delay_min <= -2:
+            return "ON_TIME", f"-{abs(delay_min)} min", delay_min
+        else:
+            return "ON_TIME", "À l'heure", 0
+    except Exception:
+        return "ON_TIME", "À l'heure", 0
+
+
+def extract_all_departures(
+    data: Dict[str, Any],
+    destination_filter: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Extrait l'ensemble des prochains passages en gare (à l'heure, retardés ou supprimés).
+    Permet de consulter le tableau complet des départs en temps réel.
+    """
+    departures = []
+
+    try:
+        siri = data.get("Siri", {})
+        service_delivery = siri.get("ServiceDelivery", {})
+        stop_deliveries = service_delivery.get("StopMonitoringDelivery", [])
+
+        if not stop_deliveries:
+            return []
+
+        visits = stop_deliveries[0].get("MonitoredStopVisit", [])
+
+        for visit in visits:
+            journey = visit.get("MonitoredVehicleJourney", {})
+            call = journey.get("MonitoredCall", {})
+
+            # Destination
+            destination_names = [
+                d.get("value", "") for d in journey.get("DestinationName", [])
+            ]
+            dest_str = " ".join(destination_names)
+
+            if destination_filter and destination_filter.lower() not in dest_str.lower():
+                continue
+
+            # Code mission
+            notes = [n.get("value", "") for n in journey.get("JourneyNote", [])]
+            mission_code = notes[0] if notes else ""
+            journey_ref = (
+                journey.get("VehicleJourneyRef", {}).get("value")
+                or journey.get("FramedVehicleJourneyRef", {}).get("DatedVehicleJourneyRef")
+                or visit.get("ItemIdentifier", "")
+            )
+            if not mission_code and journey_ref:
+                mission_code = str(journey_ref).split(":")[-1]
+
+            # Voie / Quai
+            platform = (
+                call.get("DeparturePlatformName", {}).get("value")
+                or call.get("ArrivalPlatformName", {}).get("value")
+                or ""
+            )
+
+            aimed_iso = call.get("AimedDepartureTime") or call.get("AimedArrivalTime")
+            expected_iso = call.get("ExpectedDepartureTime") or call.get("ExpectedArrivalTime")
+
+            cancelled = is_train_cancelled(call, journey)
+            raw_status = call.get("DepartureStatus", "")
+            status, status_label, delay_min = compute_delay_and_status(
+                aimed_iso, expected_iso, cancelled, raw_status
+            )
+
+            aimed_time = parse_aimed_time(aimed_iso)
+            expected_time = parse_aimed_time(expected_iso) if expected_iso else aimed_time
+
+            # Direction : Vers Paris ou Vers Banlieue
+            is_paris = "montparnasse" in dest_str.lower() or "paris" in dest_str.lower()
+            direction = "Paris-Montparnasse" if is_paris else "Banlieue"
+
+            unique_id = f"{journey_ref or mission_code}_{aimed_time}_{dest_str}"
+
+            departures.append({
+                "id": unique_id,
+                "mission_code": mission_code,
+                "destination": dest_str or "Paris-Montparnasse",
+                "direction": direction,
+                "aimed_time": aimed_time,
+                "expected_time": expected_time,
+                "platform": platform,
+                "status": status,  # "ON_TIME", "DELAYED", "CANCELLED"
+                "status_label": status_label,
+                "delay_minutes": delay_min,
+                "is_cancelled": cancelled,
+            })
+
+    except Exception as e:
+        logger.error(f"Erreur lors de l'extraction de tous les départs: {e}", exc_info=True)
+
+    # Tri par heure prévue de départ
+    departures.sort(key=lambda d: d.get("aimed_time", "99:99"))
+    return departures

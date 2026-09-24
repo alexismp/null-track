@@ -81,6 +81,7 @@ class NullTrackMessagingService : FirebaseMessagingService() {
 
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(MainActivity.EXTRA_OPEN_DEPARTURES, true)
         }
         val pendingIntent = PendingIntent.getActivity(
             this,

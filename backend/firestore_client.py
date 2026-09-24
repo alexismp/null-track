@@ -165,3 +165,41 @@ def update_last_check_timestamp(ts: Optional[float] = None) -> None:
         except Exception:
             pass
 
+
+_in_memory_departures = {"departures": [], "updated_at": None, "stop_name": "Meudon"}
+
+
+def save_live_departures(departures: List[Dict[str, Any]], stop_name: str = "Meudon") -> None:
+    """Enregistre le tableau des départs dans Firestore (collection live_status)."""
+    global _in_memory_departures
+    now_iso = datetime.now(timezone.utc).isoformat()
+    data = {
+        "stop_name": stop_name,
+        "departures": departures,
+        "updated_at": now_iso,
+    }
+    _in_memory_departures = data
+    db = get_firestore_client()
+    if db is not None:
+        try:
+            doc_ref = db.collection("live_status").document(f"departures_{stop_name.lower()}")
+            doc_ref.set(data)
+            logger.info(f"{len(departures)} départs enregistrés dans Firestore (live_status).")
+        except Exception as e:
+            logger.error(f"Erreur écriture départs temps réel dans Firestore: {e}")
+
+
+def get_live_departures(stop_name: str = "Meudon") -> Dict[str, Any]:
+    """Récupère le dernier tableau des départs enregistré."""
+    global _in_memory_departures
+    db = get_firestore_client()
+    if db is not None:
+        try:
+            doc_ref = db.collection("live_status").document(f"departures_{stop_name.lower()}")
+            doc = doc_ref.get()
+            if doc.exists:
+                return doc.to_dict() or _in_memory_departures
+        except Exception as e:
+            logger.error(f"Erreur lecture départs temps réel dans Firestore: {e}")
+    return _in_memory_departures
+

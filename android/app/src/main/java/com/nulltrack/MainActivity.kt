@@ -26,15 +26,21 @@ import com.nulltrack.service.NullTrackMessagingService
 import com.nulltrack.ui.HomeScreen
 import com.nulltrack.ui.theme.NullTrackTheme
 
+import android.app.PendingIntent
+import android.content.Intent
 import androidx.compose.runtime.remember
+import com.nulltrack.data.DeparturesRepository
 import com.nulltrack.data.ScheduleRepository
+import com.nulltrack.ui.DeparturesSheet
 import com.nulltrack.ui.SettingsSheet
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var repository: AlertRepository
     private lateinit var scheduleRepository: ScheduleRepository
+    private lateinit var departuresRepository: DeparturesRepository
     private var isSubscribedToTopic by mutableStateOf(false)
+    private var shouldOpenDeparturesOnLaunch by mutableStateOf(false)
 
     // Demande de permission POST_NOTIFICATIONS pour Android 13+ (API 33+)
     private val requestNotificationPermissionLauncher = registerForActivityResult(
@@ -55,6 +61,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         repository = AlertRepository.getInstance(applicationContext)
         scheduleRepository = ScheduleRepository.getInstance(applicationContext)
+        departuresRepository = DeparturesRepository.getInstance(applicationContext)
+
+        if (intent?.getBooleanExtra(EXTRA_OPEN_DEPARTURES, false) == true) {
+            shouldOpenDeparturesOnLaunch = true
+        }
 
         checkNotificationPermission()
         subscribeToFCMTopic()
@@ -63,7 +74,12 @@ class MainActivity : ComponentActivity() {
             NullTrackTheme {
                 val alerts by repository.alerts.collectAsState()
                 val schedule by scheduleRepository.schedule.collectAsState()
+                val departures by departuresRepository.departures.collectAsState()
+                val lastUpdatedDepartures by departuresRepository.lastUpdated.collectAsState()
+                val isDeparturesLoading by departuresRepository.isLoading.collectAsState()
+
                 var showSettingsSheet by remember { mutableStateOf(false) }
+                var showDeparturesSheet by remember { mutableStateOf(shouldOpenDeparturesOnLaunch) }
 
                 HomeScreen(
                     alerts = alerts,
@@ -71,7 +87,8 @@ class MainActivity : ComponentActivity() {
                     schedule = schedule,
                     onTestAlertClick = { sendLocalTestAlert() },
                     onClearHistoryClick = { repository.clearAlerts() },
-                    onSettingsClick = { showSettingsSheet = true }
+                    onSettingsClick = { showSettingsSheet = true },
+                    onViewDeparturesClick = { showDeparturesSheet = true }
                 )
 
                 if (showSettingsSheet) {
@@ -92,7 +109,28 @@ class MainActivity : ComponentActivity() {
                         }
                     )
                 }
+
+                if (showDeparturesSheet) {
+                    DeparturesSheet(
+                        departures = departures,
+                        lastUpdated = lastUpdatedDepartures,
+                        isLoading = isDeparturesLoading,
+                        onDismiss = {
+                            showDeparturesSheet = false
+                            shouldOpenDeparturesOnLaunch = false
+                        },
+                        onRefresh = { departuresRepository.refresh() }
+                    )
+                }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_OPEN_DEPARTURES, false)) {
+            shouldOpenDeparturesOnLaunch = true
         }
     }
 
@@ -147,6 +185,17 @@ class MainActivity : ComponentActivity() {
             notificationManager.createNotificationChannel(channel)
         }
 
+        val testIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(EXTRA_OPEN_DEPARTURES, true)
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            999,
+            testIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         val defaultSound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
         val builder = NotificationCompat.Builder(this, NullTrackMessagingService.CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
@@ -155,13 +204,15 @@ class MainActivity : ComponentActivity() {
             .setSound(defaultSound)
             .setVibrate(longArrayOf(0, 500, 200, 500))
             .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setContentIntent(pendingIntent)
             .setAutoCancel(true)
 
         notificationManager.notify(999, builder.build())
-        Toast.makeText(this, "Alerte de test déclenchée !", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Alerte de test déclenchée ! Cliquez sur la notification pour voir les départs.", Toast.LENGTH_SHORT).show()
     }
 
     companion object {
         private const val TAG = "MainActivity"
+        const val EXTRA_OPEN_DEPARTURES = "open_departures"
     }
 }

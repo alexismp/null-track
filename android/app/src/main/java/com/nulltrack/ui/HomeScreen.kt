@@ -22,10 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nulltrack.data.TrainAlert
 import com.nulltrack.ui.theme.*
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-
+import androidx.compose.material.icons.filled.DirectionsTransit
 import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.Tune
 import com.nulltrack.data.ScheduleConfig
@@ -38,7 +35,8 @@ fun HomeScreen(
     schedule: ScheduleConfig,
     onTestAlertClick: () -> Unit,
     onClearHistoryClick: () -> Unit,
-    onSettingsClick: () -> Unit
+    onSettingsClick: () -> Unit,
+    onViewDeparturesClick: () -> Unit
 ) {
     Scaffold(
         topBar = {
@@ -99,7 +97,30 @@ fun HomeScreen(
                 onSettingsClick = onSettingsClick
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Bouton principal pour consulter tous les départs
+            Button(
+                onClick = onViewDeparturesClick,
+                colors = ButtonDefaults.buttonColors(containerColor = TransilienN),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(vertical = 12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DirectionsTransit,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "🚆 Voir tous les prochains départs (Meudon)",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
 
             // Actions : Bouton de test et effacement
             Row(

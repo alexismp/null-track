@@ -88,7 +88,23 @@ class MainActivity : ComponentActivity() {
                     onTestAlertClick = { sendLocalTestAlert() },
                     onClearHistoryClick = { repository.clearAlerts() },
                     onSettingsClick = { showSettingsSheet = true },
-                    onViewDeparturesClick = { showDeparturesSheet = true }
+                    onViewDeparturesClick = { showDeparturesSheet = true },
+                    onTriggerReturnCommute = { hours ->
+                        scheduleRepository.triggerReturnCommute(hours)
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Surveillance retour activée pour ${hours}h",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    },
+                    onCancelReturnCommute = {
+                        scheduleRepository.cancelReturnCommute()
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Surveillance retour désactivée",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 )
 
                 if (showSettingsSheet) {

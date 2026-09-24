@@ -8,6 +8,10 @@ from config import (
     DESTINATION_FILTER,
     END_HOUR,
     END_MINUTE,
+    EVENING_END_HOUR,
+    EVENING_END_MINUTE,
+    EVENING_START_HOUR,
+    EVENING_START_MINUTE,
     FORCE_CHECK,
     LINE_REF,
     MONITORING_REF,
@@ -26,20 +30,23 @@ logger = logging.getLogger("null-track.monitor")
 def is_within_monitoring_window(
     schedule: Optional[Dict[str, Any]] = None,
     dt: Optional[datetime] = None,
-) -> Tuple[bool, str]:
+) -> Tuple[bool, str, List[str]]:
     """
     Vérifie si la date/heure actuelle respecte tous les critères de surveillance :
     1. Surveillance globale activée (enabled)
     2. Période de mise en veille / pause (paused_until)
-    3. Jour de la semaine actif (active_days)
-    4. Plage horaire (start_hour:start_minute à end_hour:end_minute)
+    3. Déclenchement ponctuel retour travail (return_commute_until) -> active TO_MEUDON
+    4. Jours de la semaine actifs (active_days) :
+       - Plage Matin (morning_start à morning_end) -> active TO_PARIS
+       - Plage Soir (evening_start à evening_end) -> active TO_MEUDON
     5. Intervalle de fréquence (frequency_minutes)
 
-    Retourne (is_active: bool, reason: str).
+    Retourne (is_active: bool, reason: str, active_directions: List[str]).
+    active_directions contient "TO_PARIS" (Meudon ➔ Paris) et/ou "TO_MEUDON" (Paris ➔ Meudon).
     """
     if FORCE_CHECK:
         logger.info("FORCE_CHECK est activé : vérification forcée hors plage.")
-        return True, "FORCE_CHECK actif"
+        return True, "FORCE_CHECK actif", ["TO_PARIS", "TO_MEUDON"]
 
     now = dt or datetime.now(TIMEZONE)
     current_day = now.weekday()
@@ -50,7 +57,7 @@ def is_within_monitoring_window(
     # 1. Vérification interrupteur principal
     if not cfg.get("enabled", True):
         logger.info("Surveillance désactivée par l'utilisateur.")
-        return False, "Surveillance désactivée dans l'application"
+        return False, "Surveillance désactivée dans l'application", []
 
     # 2. Vérification de la pause temporaire (Snooze)
     paused_until = cfg.get("paused_until")
@@ -67,37 +74,68 @@ def is_within_monitoring_window(
             if now.astimezone(timezone.utc) < pause_dt.astimezone(timezone.utc):
                 pause_str = pause_dt.astimezone(TIMEZONE).strftime("%H:%M")
                 logger.info(f"Notifications en pause jusqu'à {pause_str}.")
-                return False, f"Notifications en pause jusqu'à {pause_str}"
+                return False, f"Notifications en pause jusqu'à {pause_str}", []
         except Exception as e:
             logger.warning(f"Erreur lors de la vérification de paused_until ({paused_until}): {e}")
 
-    # 3. Vérification des jours actifs choisis par l'utilisateur
+    active_directions: List[str] = []
+
+    # 3. Vérification du déclenchement ponctuel du retour (ex. 1h ou 2h en quittant le travail)
+    return_until = cfg.get("return_commute_until")
+    if return_until:
+        try:
+            if isinstance(return_until, (int, float)):
+                ret_epoch = return_until / 1000.0 if return_until > 1e11 else float(return_until)
+                ret_dt = datetime.fromtimestamp(ret_epoch, tz=timezone.utc)
+            elif isinstance(return_until, str):
+                ret_dt = datetime.fromisoformat(return_until.replace("Z", "+00:00"))
+            else:
+                ret_dt = return_until
+
+            if now.astimezone(timezone.utc) < ret_dt.astimezone(timezone.utc):
+                active_directions.append("TO_MEUDON")
+                ret_str = ret_dt.astimezone(TIMEZONE).strftime("%H:%M")
+                logger.info(f"Surveillance retour travail active jusqu'à {ret_str}.")
+        except Exception as e:
+            logger.warning(f"Erreur vérification return_commute_until: {e}")
+
+    # 4. Vérification des jours actifs et plages horaires programmées
     active_days = cfg.get("active_days")
     if active_days is None:
         active_days = ACTIVE_DAYS
-    if current_day not in active_days:
+
+    if current_day in active_days:
+        # A. Plage Matin (Meudon ➔ Paris-Montparnasse)
+        m_enabled = cfg.get("morning_enabled", True)
+        m_start_h = cfg.get("morning_start_hour", cfg.get("start_hour", START_HOUR))
+        m_start_m = cfg.get("morning_start_minute", cfg.get("start_minute", START_MINUTE))
+        m_end_h = cfg.get("morning_end_hour", cfg.get("end_hour", END_HOUR))
+        m_end_m = cfg.get("morning_end_minute", cfg.get("end_minute", END_MINUTE))
+
+        w_morning_start = time(int(m_start_h), int(m_start_m))
+        w_morning_end = time(int(m_end_h), int(m_end_m))
+
+        if m_enabled and (w_morning_start <= current_time <= w_morning_end):
+            if "TO_PARIS" not in active_directions:
+                active_directions.append("TO_PARIS")
+
+        # B. Plage Soir (Paris-Montparnasse ➔ Meudon)
+        e_enabled = cfg.get("evening_enabled", True)
+        e_start_h = cfg.get("evening_start_hour", EVENING_START_HOUR)
+        e_start_m = cfg.get("evening_start_minute", EVENING_START_MINUTE)
+        e_end_h = cfg.get("evening_end_hour", EVENING_END_HOUR)
+        e_end_m = cfg.get("evening_end_minute", EVENING_END_MINUTE)
+
+        w_evening_start = time(int(e_start_h), int(e_start_m))
+        w_evening_end = time(int(e_end_h), int(e_end_m))
+
+        if e_enabled and (w_evening_start <= current_time <= w_evening_end):
+            if "TO_MEUDON" not in active_directions:
+                active_directions.append("TO_MEUDON")
+
+    if not active_directions:
         day_name = now.strftime('%A')
-        logger.info(
-            f"Jour non surveillé ({day_name}, index {current_day}). "
-            f"Jours actifs : {active_days}"
-        )
-        return False, f"Jour non surveillé ({day_name})"
-
-    # 4. Vérification de la plage horaire définie
-    start_h = cfg.get("start_hour", START_HOUR)
-    start_m = cfg.get("start_minute", START_MINUTE)
-    end_h = cfg.get("end_hour", END_HOUR)
-    end_m = cfg.get("end_minute", END_MINUTE)
-
-    w_start = time(int(start_h), int(start_m))
-    w_end = time(int(end_h), int(end_m))
-
-    if not (w_start <= current_time <= w_end):
-        logger.info(
-            f"Heure actuelle ({current_time.strftime('%H:%M:%S')}) en dehors de la plage "
-            f"({w_start.strftime('%H:%M')} - {w_end.strftime('%H:%M')})."
-        )
-        return False, f"En dehors de la plage horaire ({w_start.strftime('%H:%M')} - {w_end.strftime('%H:%M')})"
+        return False, f"Aucun trajet en cours de surveillance ({day_name}, {current_time.strftime('%H:%M')})", []
 
     # 5. Vérification de l'intervalle de fréquence
     freq_min = int(cfg.get("frequency_minutes", 3))
@@ -107,9 +145,10 @@ def is_within_monitoring_window(
         min_interval_sec = (freq_min * 60) - 20  # Tolérance de 20s
         if elapsed_sec < min_interval_sec:
             remaining = int(min_interval_sec - elapsed_sec)
-            return False, f"Fréquence de {freq_min} min respectée (prochain appel dans ~{remaining}s)"
+            return False, f"Fréquence de {freq_min} min respectée (prochain appel dans ~{remaining}s)", active_directions
 
-    return True, "OK"
+    dir_desc = " & ".join(["Meudon ➔ Paris" if d == "TO_PARIS" else "Paris ➔ Meudon" for d in active_directions])
+    return True, f"Surveillance active ({dir_desc})", active_directions
 
 
 def fetch_stop_monitoring(
@@ -171,12 +210,16 @@ def parse_aimed_time(iso_str: Optional[str]) -> str:
         return iso_str[-8:-3] if len(iso_str) >= 8 else iso_str
 
 
-def extract_cancelled_trains(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+def extract_cancelled_trains(
+    data: Dict[str, Any],
+    active_directions: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
     """
     Parcourt la réponse JSON SIRI Lite et extrait les trains annulés
-    correspondant à la direction souhaitée (ex. Paris-Montparnasse).
+    correspondant aux directions actives ("TO_PARIS" et/ou "TO_MEUDON").
     """
     cancelled_trains = []
+    directions_to_check = active_directions if active_directions is not None else ["TO_PARIS", "TO_MEUDON"]
 
     try:
         siri = data.get("Siri", {})
@@ -192,14 +235,17 @@ def extract_cancelled_trains(data: Dict[str, Any]) -> List[Dict[str, Any]]:
             journey = visit.get("MonitoredVehicleJourney", {})
             call = journey.get("MonitoredCall", {})
 
-            # Vérification destination
+            # Vérification destination & direction
             destination_names = [
                 d.get("value", "") for d in journey.get("DestinationName", [])
             ]
             destination_str = " ".join(destination_names)
 
-            # Si un filtre de destination est configuré (ex. "Montparnasse")
-            if DESTINATION_FILTER and DESTINATION_FILTER.lower() not in destination_str.lower():
+            dir_ref = journey.get("DirectionRef", {}).get("value", "")
+            is_to_paris = (dir_ref == "Retour") or ("montparnasse" in destination_str.lower()) or ("paris" in destination_str.lower())
+            train_dir = "TO_PARIS" if is_to_paris else "TO_MEUDON"
+
+            if train_dir not in directions_to_check:
                 continue
 
             # Vérification de l'annulation
@@ -219,9 +265,12 @@ def extract_cancelled_trains(data: Dict[str, Any]) -> List[Dict[str, Any]]:
                 aimed_dep_iso = call.get("AimedDepartureTime") or call.get("AimedArrivalTime")
                 dep_time_display = parse_aimed_time(aimed_dep_iso)
 
-                # Date du jour pour déduplication unique (ex. 2026-09-24_ROPO_08:12)
+                # Date du jour pour déduplication unique (ex. 2026-09-24_TO_PARIS_ROPO_08:12)
                 today_str = datetime.now(TIMEZONE).strftime("%Y-%m-%d")
-                train_id = f"{today_str}_{journey_ref or mission_code}_{dep_time_display}"
+                train_id = f"{today_str}_{train_dir}_{journey_ref or mission_code}_{dep_time_display}"
+
+                dir_label = "Meudon ➔ Paris-Montparnasse" if is_to_paris else "Paris-Montparnasse ➔ Meudon"
+                stop_display = "Meudon" if is_to_paris else "Paris-Montparnasse"
 
                 cancelled_trains.append({
                     "id": train_id,
@@ -229,8 +278,10 @@ def extract_cancelled_trains(data: Dict[str, Any]) -> List[Dict[str, Any]]:
                     "mission_code": mission_code,
                     "departure_time": dep_time_display,
                     "aimed_time_iso": aimed_dep_iso,
-                    "destination": destination_str or "Paris-Montparnasse",
-                    "stop_name": "Meudon",
+                    "destination": destination_str or ("Paris-Montparnasse" if is_to_paris else "Meudon"),
+                    "direction_code": train_dir,
+                    "direction_label": dir_label,
+                    "stop_name": stop_display,
                     "status": "ANNULÉ",
                 })
 

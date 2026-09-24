@@ -52,9 +52,14 @@ def send_cancellation_alert(train: Dict[str, Any], topic: str = FCM_TOPIC) -> bo
     mission = train.get("mission_code", "Ligne N")
     stop = train.get("stop_name", "Meudon")
     dest = train.get("destination", "Paris-Montparnasse")
+    direction_code = train.get("direction_code", "TO_PARIS")
 
-    title = f"⚠️ Train Annulé : {mission} ({departure})"
-    body = f"Le train de {departure} au départ de {stop} vers {dest} est supprimé."
+    if direction_code == "TO_MEUDON":
+        title = f"⚠️ Train retour supprimé : {mission} ({departure})"
+        body = f"Le train de {departure} (sens Paris ➔ Meudon, vers {dest}) est supprimé."
+    else:
+        title = f"⚠️ Train supprimé : {mission} ({departure})"
+        body = f"Le train de {departure} au départ de Meudon vers {dest} est supprimé."
 
     message = messaging.Message(
         topic=topic,

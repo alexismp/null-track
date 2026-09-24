@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import logging
 import os
 from typing import Any, Dict
@@ -14,11 +15,13 @@ except ImportError:
 
 from fcm_client import send_cancellation_alert
 from firestore_client import (
+    cancel_return_commute,
     get_live_departures,
     get_monitoring_schedule,
     is_train_notified,
     mark_train_as_notified,
     save_live_departures,
+    trigger_return_commute,
     update_last_check_timestamp,
     update_monitoring_schedule,
 )
@@ -42,19 +45,22 @@ def run_cancellation_check(force: bool = False) -> Dict[str, Any]:
     4. Déduplication et envoi des notifications FCM
     """
     schedule = get_monitoring_schedule()
-    is_active, reason = is_within_monitoring_window(schedule=schedule)
+    is_active, reason, active_directions = is_within_monitoring_window(schedule=schedule)
 
     if not force and not is_active:
         return {
             "status": "skipped",
             "message": reason,
             "alerts_sent": 0,
+            "active_directions": [],
             "schedule": {
                 "enabled": schedule.get("enabled", True),
                 "active_days": schedule.get("active_days"),
-                "hours": f"{schedule.get('start_hour', 7):02d}h{schedule.get('start_minute', 0):02d} - {schedule.get('end_hour', 9):02d}h{schedule.get('end_minute', 30):02d}",
+                "morning": f"{schedule.get('morning_start_hour', 7):02d}h{schedule.get('morning_start_minute', 0):02d} - {schedule.get('morning_end_hour', 9):02d}h{schedule.get('morning_end_minute', 30):02d}",
+                "evening": f"{schedule.get('evening_start_hour', 17):02d}h{schedule.get('evening_start_minute', 0):02d} - {schedule.get('evening_end_hour', 19):02d}h{schedule.get('evening_end_minute', 30):02d}",
+                "return_commute_until": schedule.get("return_commute_until"),
                 "paused_until": schedule.get("paused_until"),
-            }
+            },
         }
 
     try:
@@ -67,7 +73,8 @@ def run_cancellation_check(force: bool = False) -> Dict[str, Any]:
         all_deps = extract_all_departures(data)
         save_live_departures(all_deps)
 
-        cancelled_trains = extract_cancelled_trains(data)
+        dirs_to_check = active_directions if active_directions else ["TO_PARIS", "TO_MEUDON"]
+        cancelled_trains = extract_cancelled_trains(data, active_directions=dirs_to_check)
 
         alerts_sent = 0
         skipped_already_notified = 0
@@ -89,10 +96,12 @@ def run_cancellation_check(force: bool = False) -> Dict[str, Any]:
                     "train_id": train_id,
                     "departure": train["departure_time"],
                     "mission": train["mission_code"],
+                    "direction": train.get("direction_label", ""),
                 })
 
         return {
             "status": "success",
+            "active_directions": dirs_to_check,
             "cancelled_detected": len(cancelled_trains),
             "total_departures": len(all_deps),
             "alerts_sent": alerts_sent,
@@ -126,7 +135,27 @@ def check_trains_http(request: Request):
         updated = update_monitoring_schedule(body)
         return jsonify({"status": "success", "config": updated}), 200
 
-    # 3. Endpoint pour consulter tous les départs : GET ?action=departures ou path /departures
+    # 3. Endpoint pour déclencher la surveillance retour (Paris ➔ Meudon)
+    if action in ("trigger_return", "start_return") or request.path.endswith("/trigger-return"):
+        body = request.get_json(silent=True) or {}
+        hours = int(request.args.get("hours", body.get("hours", 1)))
+        updated = trigger_return_commute(hours=hours)
+        return jsonify({
+            "status": "success",
+            "message": f"Surveillance retour (Paris ➔ Meudon) activée pour {hours}h",
+            "config": updated,
+        }), 200
+
+    # 4. Endpoint pour annuler la surveillance retour
+    if action in ("cancel_return", "stop_return") or request.path.endswith("/cancel-return"):
+        updated = cancel_return_commute()
+        return jsonify({
+            "status": "success",
+            "message": "Surveillance retour désactivée",
+            "config": updated,
+        }), 200
+
+    # 5. Endpoint pour consulter tous les départs : GET ?action=departures ou path /departures
     if request.method == "GET" and (action == "departures" or request.path.endswith("/departures")):
         fresh = request.args.get("fresh", "").lower() in ("true", "1", "yes")
         live = get_live_departures()
@@ -139,14 +168,14 @@ def check_trains_http(request: Request):
                     "status": "success",
                     "stop_name": "Meudon",
                     "departures": deps,
-                    "updated_at": datetime.now(timezone.utc).isoformat()
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
                 }
             except Exception as e:
                 logger.error(f"Erreur récupération des départs : {e}")
                 return jsonify({"status": "error", "message": str(e), "departures": []}), 500
         return jsonify(live), 200
 
-    # 4. Cycle régulier de surveillance des trains
+    # 6. Cycle régulier de surveillance des trains
     force_param = request.args.get("force", "").lower() in ("true", "1", "yes")
     result = run_cancellation_check(force=force_param)
 

@@ -37,12 +37,18 @@ DESTINATION_FILTER = os.getenv("DESTINATION_FILTER", "Montparnasse")
 # Jours actifs : 0=Lundi, 1=Mardi, 2=Mercredi, 3=Jeudi, 4=Vendredi, 5=Samedi, 6=Dimanche
 ACTIVE_DAYS = [int(d.strip()) for d in os.getenv("ACTIVE_DAYS", "0,1,2,3,4").split(",")]
 
-# Plage horaire par défaut : 07h00 à 09h30
+# Plage Matin par défaut (Aller : Meudon -> Paris) : 07h00 à 09h30
 TIMEZONE = ZoneInfo(os.getenv("TIMEZONE", "Europe/Paris"))
 START_HOUR = int(os.getenv("START_HOUR", "7"))
 START_MINUTE = int(os.getenv("START_MINUTE", "0"))
 END_HOUR = int(os.getenv("END_HOUR", "9"))
 END_MINUTE = int(os.getenv("END_MINUTE", "30"))
+
+# Plage Soir par défaut (Retour : Paris -> Meudon) : 17h00 à 19h30
+EVENING_START_HOUR = int(os.getenv("EVENING_START_HOUR", "17"))
+EVENING_START_MINUTE = int(os.getenv("EVENING_START_MINUTE", "0"))
+EVENING_END_HOUR = int(os.getenv("EVENING_END_HOUR", "19"))
+EVENING_END_MINUTE = int(os.getenv("EVENING_END_MINUTE", "30"))
 
 WINDOW_START = time(START_HOUR, START_MINUTE)
 WINDOW_END = time(END_HOUR, END_MINUTE)

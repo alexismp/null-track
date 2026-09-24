@@ -8,9 +8,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DirectionsTransit
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.PauseCircle
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Work
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -20,12 +26,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nulltrack.data.ScheduleConfig
 import com.nulltrack.data.TrainAlert
 import com.nulltrack.ui.theme.*
-import androidx.compose.material.icons.filled.DirectionsTransit
-import androidx.compose.material.icons.filled.PauseCircle
-import androidx.compose.material.icons.filled.Tune
-import com.nulltrack.data.ScheduleConfig
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,7 +42,9 @@ fun HomeScreen(
     onTestAlertClick: () -> Unit,
     onClearHistoryClick: () -> Unit,
     onSettingsClick: () -> Unit,
-    onViewDeparturesClick: () -> Unit
+    onViewDeparturesClick: () -> Unit,
+    onTriggerReturnCommute: (Int) -> Unit = {},
+    onCancelReturnCommute: () -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -90,6 +98,15 @@ fun HomeScreen(
         ) {
             Spacer(modifier = Modifier.height(8.dp))
 
+            // Carte Déclencheur Rapide : Retour du travail (Paris ➔ Meudon)
+            ReturnCommuteCard(
+                schedule = schedule,
+                onTriggerReturnCommute = onTriggerReturnCommute,
+                onCancelReturnCommute = onCancelReturnCommute
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
             // Carte de statut de la surveillance
             MonitoringStatusCard(
                 isSubscribed = isSubscribed,
@@ -97,7 +114,7 @@ fun HomeScreen(
                 onSettingsClick = onSettingsClick
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Bouton principal pour consulter tous les départs
             Button(
@@ -120,7 +137,7 @@ fun HomeScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Actions : Bouton de test et effacement
             Row(
@@ -153,13 +170,13 @@ fun HomeScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             // Titre de section
             Text(
                 text = "Historique des alertes reçues",
                 fontWeight = FontWeight.Bold,
-                fontSize = 18.sp,
+                fontSize = 17.sp,
                 color = TextPrimary
             )
 
@@ -181,6 +198,115 @@ fun HomeScreen(
     }
 }
 
+/**
+ * Carte dédiée au retour du travail (Paris ➔ Meudon)
+ * Permet d'activer en 1 clic une fenêtre de vérification de 1h ou 2h.
+ */
+@Composable
+fun ReturnCommuteCard(
+    schedule: ScheduleConfig,
+    onTriggerReturnCommute: (Int) -> Unit,
+    onCancelReturnCommute: () -> Unit
+) {
+    val isReturnActive = schedule.isReturnCommuteActive()
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isReturnActive) Color(0xFFE8F5E9) else SurfaceLight
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isReturnActive) 3.dp else 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(if (isReturnActive) SuccessGreen else Color(0xFFE3F2FD)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isReturnActive) Icons.Default.DirectionsTransit else Icons.Default.Work,
+                            contentDescription = null,
+                            tint = if (isReturnActive) Color.White else TransilienN,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = if (isReturnActive) "Surveillance Retour Active 🟢" else "Je quitte le travail (Paris ➔ Meudon)",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = if (isReturnActive) SuccessGreen else TextPrimary
+                        )
+                        Text(
+                            text = if (isReturnActive)
+                                "Alertes actives jusqu'à ${schedule.getReturnCommuteRemainingText() ?: ""}"
+                            else
+                                "Déclencher une surveillance ponctuelle pour le trajet retour",
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            if (isReturnActive) {
+                OutlinedButton(
+                    onClick = onCancelReturnCommute,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFC62828)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(vertical = 6.dp)
+                ) {
+                    Icon(imageVector = Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Arrêter la surveillance retour", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = { onTriggerReturnCommute(1) },
+                        colors = ButtonDefaults.buttonColors(containerColor = TransilienN),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(vertical = 6.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Timer, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Retour 1 heure", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        onClick = { onTriggerReturnCommute(2) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(vertical = 6.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Timer, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Retour 2 heures", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun MonitoringStatusCard(
     isSubscribed: Boolean,
@@ -195,16 +321,16 @@ fun MonitoringStatusCard(
         colors = CardDefaults.cardColors(containerColor = SurfaceLight),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(14.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "Meudon ➔ Paris-Montparnasse",
+                    text = "Surveillance Bidirectionnelle",
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.sp,
+                    fontSize = 15.sp,
                     color = TextPrimary
                 )
                 // Badge Actif / En pause / Désactivé
@@ -231,7 +357,7 @@ fun MonitoringStatusCard(
                 }
             }
 
-            Divider(modifier = Modifier.padding(vertical = 10.dp), color = Color(0xFFEEEEEE))
+            Divider(modifier = Modifier.padding(vertical = 8.dp), color = Color(0xFFEEEEEE))
 
             if (isPaused) {
                 Text(
@@ -243,32 +369,66 @@ fun MonitoringStatusCard(
                 Spacer(modifier = Modifier.height(4.dp))
             }
 
+            // Direction Matin
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "🌅 Matin (Meudon ➔ Paris) :",
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+                Text(
+                    text = if (schedule.morningEnabled) schedule.formatMorningTimeRange() else "Désactivé",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (schedule.morningEnabled) TextPrimary else TextSecondary
+                )
+            }
+
+            Spacer(modifier = Modifier.height(3.dp))
+
+            // Direction Soir
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "🌆 Soir (Paris ➔ Meudon) :",
+                    fontSize = 12.sp,
+                    color = TextSecondary
+                )
+                Text(
+                    text = if (schedule.eveningEnabled) schedule.formatEveningTimeRange() else "Désactivé",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (schedule.eveningEnabled) TextPrimary else TextSecondary
+                )
+            }
+
+            Spacer(modifier = Modifier.height(3.dp))
+
             Text(
                 text = "📅 Jours actifs : ${schedule.formatActiveDays()}",
-                fontSize = 13.sp,
+                fontSize = 12.sp,
                 color = TextSecondary
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(3.dp))
             Text(
-                text = "⏰ Plage horaire : ${schedule.formatTimeRange()}",
-                fontSize = 13.sp,
-                color = TextSecondary
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "📡 Fréquence : Toutes les ${schedule.frequencyMinutes} min (uniquement dans la plage)",
-                fontSize = 13.sp,
+                text = "📡 Fréquence : Toutes les ${schedule.frequencyMinutes} min (uniquement fenêtres actives)",
+                fontSize = 12.sp,
                 color = TextSecondary
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             OutlinedButton(
                 onClick = onSettingsClick,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp),
-                contentPadding = PaddingValues(vertical = 6.dp)
+                contentPadding = PaddingValues(vertical = 5.dp)
             ) {
-                Text("Modifier les horaires, jours & mise en veille", fontSize = 12.sp)
+                Text("Modifier les plages horaires matin / soir & jours", fontSize = 12.sp)
             }
         }
     }
@@ -278,6 +438,10 @@ fun MonitoringStatusCard(
 fun AlertCard(alert: TrainAlert) {
     val timeFormat = SimpleDateFormat("dd/MM à HH:mm", Locale.FRANCE)
     val formattedDate = timeFormat.format(Date(alert.receivedAtTimestamp))
+
+    val isToParis = alert.destination.contains("Paris", ignoreCase = true) ||
+            alert.destination.contains("Montparnasse", ignoreCase = true)
+    val directionLabel = if (isToParis) "Meudon ➔ Paris" else "Paris ➔ Meudon"
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -329,9 +493,15 @@ fun AlertCard(alert: TrainAlert) {
                 }
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "Mission : ${alert.missionCode} • ${alert.stopName} ➔ ${alert.destination}",
+                    text = "Mission : ${alert.missionCode} • $directionLabel",
                     fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
                     color = TextPrimary
+                )
+                Text(
+                    text = "Terminus : ${alert.destination}",
+                    fontSize = 12.sp,
+                    color = TextSecondary
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
@@ -349,7 +519,7 @@ fun EmptyStateCard() {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 24.dp),
+            .padding(vertical = 20.dp),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = SurfaceLight)
     ) {
@@ -374,7 +544,7 @@ fun EmptyStateCard() {
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "Les trains circulent normalement ou aucune suppression n'a été signalée pour l'instant. Vous recevrez une notification sonore dès qu'une anomalie survient.",
+                text = "Les trains circulent normalement ou aucune suppression n'a été signalée pour l'instant. Vous recevrez une notification dès qu'une anomalie survient.",
                 fontSize = 13.sp,
                 color = TextSecondary,
                 lineHeight = 18.sp

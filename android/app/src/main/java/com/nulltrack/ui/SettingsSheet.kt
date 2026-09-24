@@ -34,10 +34,21 @@ fun SettingsSheet(
     onResumeNow: () -> Unit
 ) {
     var enabled by remember(schedule) { mutableStateOf(schedule.enabled) }
-    var startHour by remember(schedule) { mutableStateOf(schedule.startHour) }
-    var startMinute by remember(schedule) { mutableStateOf(schedule.startMinute) }
-    var endHour by remember(schedule) { mutableStateOf(schedule.endHour) }
-    var endMinute by remember(schedule) { mutableStateOf(schedule.endMinute) }
+
+    // Plage Matin (Meudon ➔ Paris)
+    var morningEnabled by remember(schedule) { mutableStateOf(schedule.morningEnabled) }
+    var morningStartHour by remember(schedule) { mutableStateOf(schedule.morningStartHour) }
+    var morningStartMinute by remember(schedule) { mutableStateOf(schedule.morningStartMinute) }
+    var morningEndHour by remember(schedule) { mutableStateOf(schedule.morningEndHour) }
+    var morningEndMinute by remember(schedule) { mutableStateOf(schedule.morningEndMinute) }
+
+    // Plage Soir (Paris ➔ Meudon)
+    var eveningEnabled by remember(schedule) { mutableStateOf(schedule.eveningEnabled) }
+    var eveningStartHour by remember(schedule) { mutableStateOf(schedule.eveningStartHour) }
+    var eveningStartMinute by remember(schedule) { mutableStateOf(schedule.eveningStartMinute) }
+    var eveningEndHour by remember(schedule) { mutableStateOf(schedule.eveningEndHour) }
+    var eveningEndMinute by remember(schedule) { mutableStateOf(schedule.eveningEndMinute) }
+
     var activeDays by remember(schedule) { mutableStateOf(schedule.activeDays) }
     var frequencyMinutes by remember(schedule) { mutableStateOf(schedule.frequencyMinutes) }
 
@@ -93,12 +104,12 @@ fun SettingsSheet(
                     Text(
                         text = "Surveillance active",
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 16.sp,
+                        fontSize = 15.sp,
                         color = TextPrimary
                     )
                     Text(
                         text = if (enabled) "Les alertes sont activées" else "Toutes les alertes sont coupées",
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         color = TextSecondary
                     )
                 }
@@ -112,7 +123,7 @@ fun SettingsSheet(
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             // 2. Section Pause / Snooze
             Card(
@@ -190,7 +201,7 @@ fun SettingsSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(18.dp))
 
             // 3. Jours de la semaine
             Text(
@@ -226,44 +237,121 @@ fun SettingsSheet(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // 4. Plage horaire
-            Text(
-                text = "⏰ Plage horaire surveillée :",
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp,
-                color = TextPrimary
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Row(
+            // 4. Plage Matin (Meudon ➔ Paris)
+            Card(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = BackgroundLight)
             ) {
-                // Heure début
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Début :", fontSize = 12.sp, color = TextSecondary)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        TimeStepper(value = startHour, min = 5, max = 23, label = "h") { startHour = it }
-                        Spacer(modifier = Modifier.width(4.dp))
-                        TimeStepper(value = startMinute, min = 0, max = 55, step = 5, label = "m") { startMinute = it }
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "🌅 Matin : Meudon ➔ Paris-Montparnasse",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = TextPrimary
+                        )
+                        Switch(
+                            checked = morningEnabled,
+                            onCheckedChange = { morningEnabled = it },
+                            modifier = Modifier.scale(0.85f),
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = TransilienN)
+                        )
                     }
-                }
 
-                // Heure fin
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Fin :", fontSize = 12.sp, color = TextSecondary)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        TimeStepper(value = endHour, min = startHour, max = 23, label = "h") { endHour = it }
-                        Spacer(modifier = Modifier.width(4.dp))
-                        TimeStepper(value = endMinute, min = 0, max = 55, step = 5, label = "m") { endMinute = it }
+                    if (morningEnabled) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Début :", fontSize = 12.sp, color = TextSecondary)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    TimeStepper(value = morningStartHour, min = 5, max = 13, label = "h") { morningStartHour = it }
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    TimeStepper(value = morningStartMinute, min = 0, max = 55, step = 5, label = "m") { morningStartMinute = it }
+                                }
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Fin :", fontSize = 12.sp, color = TextSecondary)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    TimeStepper(value = morningEndHour, min = morningStartHour, max = 14, label = "h") { morningEndHour = it }
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    TimeStepper(value = morningEndMinute, min = 0, max = 55, step = 5, label = "m") { morningEndMinute = it }
+                                }
+                            }
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // 5. Fréquence
+            // 5. Plage Soir (Paris ➔ Meudon)
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = BackgroundLight)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "🌆 Soir : Paris-Montparnasse ➔ Meudon",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = TextPrimary
+                        )
+                        Switch(
+                            checked = eveningEnabled,
+                            onCheckedChange = { eveningEnabled = it },
+                            modifier = Modifier.scale(0.85f),
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = TransilienN)
+                        )
+                    }
+
+                    if (eveningEnabled) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Début :", fontSize = 12.sp, color = TextSecondary)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    TimeStepper(value = eveningStartHour, min = 15, max = 22, label = "h") { eveningStartHour = it }
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    TimeStepper(value = eveningStartMinute, min = 0, max = 55, step = 5, label = "m") { eveningStartMinute = it }
+                                }
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Fin :", fontSize = 12.sp, color = TextSecondary)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    TimeStepper(value = eveningEndHour, min = eveningStartHour, max = 23, label = "h") { eveningEndHour = it }
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    TimeStepper(value = eveningEndMinute, min = 0, max = 55, step = 5, label = "m") { eveningEndMinute = it }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // 6. Fréquence
             Text(
                 text = "📡 Fréquence des vérifications :",
                 fontWeight = FontWeight.SemiBold,
@@ -289,23 +377,29 @@ fun SettingsSheet(
                 }
             }
             Text(
-                text = "Les appels API PRIM ne seront exécutés que toutes les $frequencyMinutes minutes dans votre plage horaire.",
+                text = "Les appels API PRIM ne seront exécutés que toutes les $frequencyMinutes minutes pendant vos fenêtres actives (matin, soir ou déclencheur retour).",
                 fontSize = 12.sp,
                 color = TextSecondary,
                 modifier = Modifier.padding(top = 4.dp)
             )
 
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             // Bouton Enregistrer
             Button(
                 onClick = {
                     val updated = schedule.copy(
                         enabled = enabled,
-                        startHour = startHour,
-                        startMinute = startMinute,
-                        endHour = endHour,
-                        endMinute = endMinute,
+                        morningEnabled = morningEnabled,
+                        morningStartHour = morningStartHour,
+                        morningStartMinute = morningStartMinute,
+                        morningEndHour = morningEndHour,
+                        morningEndMinute = morningEndMinute,
+                        eveningEnabled = eveningEnabled,
+                        eveningStartHour = eveningStartHour,
+                        eveningStartMinute = eveningStartMinute,
+                        eveningEndHour = eveningEndHour,
+                        eveningEndMinute = eveningEndMinute,
                         activeDays = activeDays,
                         frequencyMinutes = frequencyMinutes
                     )
@@ -324,6 +418,10 @@ fun SettingsSheet(
     }
 }
 
+private fun Modifier.scale(scale: Float): Modifier = this.then(
+    Modifier.size((scale * 52).dp, (scale * 32).dp)
+)
+
 @Composable
 fun TimeStepper(
     value: Int,
@@ -335,7 +433,7 @@ fun TimeStepper(
 ) {
     Card(
         shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = BackgroundLight)
+        colors = CardDefaults.cardColors(containerColor = SurfaceLight)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,

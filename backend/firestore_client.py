@@ -7,6 +7,10 @@ from config import (
     DEFAULT_FREQUENCY_MINUTES,
     END_HOUR,
     END_MINUTE,
+    EVENING_END_HOUR,
+    EVENING_END_MINUTE,
+    EVENING_START_HOUR,
+    EVENING_START_MINUTE,
     FIRESTORE_COLLECTION,
     FIREBASE_PROJECT_ID,
     SCHEDULE_DOCUMENT,
@@ -21,13 +25,23 @@ _db = None
 _in_memory_cache = set()
 _in_memory_schedule = {
     "enabled": True,
-    "start_hour": START_HOUR,
-    "start_minute": START_MINUTE,
-    "end_hour": END_HOUR,
-    "end_minute": END_MINUTE,
     "active_days": ACTIVE_DAYS,
     "frequency_minutes": DEFAULT_FREQUENCY_MINUTES,
     "paused_until": None,
+    # Sens 1 : Meudon -> Paris-Montparnasse (Matin)
+    "morning_enabled": True,
+    "morning_start_hour": START_HOUR,
+    "morning_start_minute": START_MINUTE,
+    "morning_end_hour": END_HOUR,
+    "morning_end_minute": END_MINUTE,
+    # Sens 2 : Paris-Montparnasse -> Meudon (Soir)
+    "evening_enabled": True,
+    "evening_start_hour": EVENING_START_HOUR,
+    "evening_start_minute": EVENING_START_MINUTE,
+    "evening_end_hour": EVENING_END_HOUR,
+    "evening_end_minute": EVENING_END_MINUTE,
+    # Déclencheur ponctuel retour travail (ex: 1h ou 2h)
+    "return_commute_until": None,
     "last_check_timestamp": 0,
 }
 
@@ -202,4 +216,25 @@ def get_live_departures(stop_name: str = "Meudon") -> Dict[str, Any]:
         except Exception as e:
             logger.error(f"Erreur lecture départs temps réel dans Firestore: {e}")
     return _in_memory_departures
+
+
+def trigger_return_commute(hours: int = 1) -> Dict[str, Any]:
+    """
+    Active la surveillance ponctuelle du retour (Paris-Montparnasse ➔ Meudon)
+    pour une durée définie (ex. 1h ou 2h) quand l'utilisateur quitte le travail.
+    """
+    until_dt = datetime.now(timezone.utc) + timedelta(hours=hours)
+    logger.info(f"Surveillance retour activée pour {hours}h (jusqu'à {until_dt.isoformat()}).")
+    return update_monitoring_schedule({
+        "return_commute_until": until_dt.isoformat(),
+        "enabled": True,
+    })
+
+
+def cancel_return_commute() -> Dict[str, Any]:
+    """Annule la surveillance ponctuelle du retour."""
+    logger.info("Surveillance retour désactivée.")
+    return update_monitoring_schedule({
+        "return_commute_until": None,
+    })
 

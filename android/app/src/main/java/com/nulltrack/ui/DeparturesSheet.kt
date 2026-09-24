@@ -183,7 +183,7 @@ fun DeparturesSheet(
                 FilterChip(
                     selected = selectedFilter == "Banlieue",
                     onClick = { selectedFilter = "Banlieue" },
-                    label = { Text("Vers Banlieue", fontSize = 12.sp) },
+                    label = { Text("Vers Banlieue (Paris ➔ Meudon)", fontSize = 12.sp) },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = TransilienN,
                         selectedLabelColor = Color.White

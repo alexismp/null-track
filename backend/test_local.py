@@ -73,8 +73,9 @@ def test_mock():
     print("=" * 60)
 
     print("\n1. Détection de la plage horaire :")
-    in_window = is_within_monitoring_window()
-    print(f"   -> Plage horaire active ? {'OUI' if in_window else 'NON (selon config)'}")
+    in_window, reason, active_dirs = is_within_monitoring_window()
+    print(f"   -> Plage horaire active ? {'OUI' if in_window else 'NON'} ({reason})")
+    print(f"   -> Directions actives : {active_dirs}")
 
     print("\n2. Extraction des trains annulés depuis le mock SIRI Lite :")
     cancelled = extract_cancelled_trains(MOCK_SIRI_RESPONSE)

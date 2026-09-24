@@ -1,8 +1,10 @@
 # 🚆 Null-Track — Alerte d'annulation Transilien Ligne N
 
-**Null-Track** est un système d'alerte automatisé conçu pour surveiller les trains de la **Ligne N Transilien** au départ de **Meudon** vers **Paris-Montparnasse**.
+**Null-Track** est un système d'alerte automatisé conçu pour surveiller les trains de la **Ligne N Transilien** dans les deux sens de circulation :
+- 🌅 **Sens Aller (Matin)** : depuis votre gare de départ (**Meudon**) vers **Paris-Montparnasse** (par défaut 07h00 - 09h30).
+- 🌆 **Sens Retour (Soir)** : depuis **Paris-Montparnasse** vers votre gare (**Meudon**), programmable (ex: 17h00 - 19h30) ou **déclenchable à la demande en 1 clic** (fenêtre de 1h ou 2h lorsque vous quittez le travail).
 
-Dès qu'une suppression ou annulation est enregistrée par la SNCF / Île-de-France Mobilités pendant la plage horaire définie (par défaut : **du lundi au vendredi, de 07h00 à 09h30**), une notification push haute priorité (avec sonnerie et vibration) est envoyée instantanément sur votre smartphone **Android**.
+Dès qu'une suppression ou annulation est enregistrée par la SNCF / Île-de-France Mobilités pendant la plage active ou la fenêtre retour, une notification push haute priorité (avec sonnerie et vibration) est envoyée instantanément sur votre smartphone **Android**. Un clic sur la notification ouvre le tableau de bord de tous les départs en temps réel avec badges de ponctualité.
 
 ---
 
@@ -10,12 +12,14 @@ Dès qu'une suppression ou annulation est enregistrée par la SNCF / Île-de-Fra
 
 ```mermaid
 graph TD
-    CS["Cloud Scheduler (Toutes les 2 min, Lun-Ven 7h-9h30)"] -->|Déclenche| CF["Backend Python (Cloud Functions Gen2)"]
-    CF -->|1. Interrogation SIRI Lite| PRIM["API IDFM PRIM (Plateforme Régionale)"]
-    PRIM -->|2. Statuts temps réel| CF
-    CF -->|3. Anti-spam| FS[("Cloud Firestore")]
+    CS["Cloud Scheduler (Toutes les 3 min)"] -->|Déclenche| CF["Backend Python (Cloud Run functions Gen2)"]
+    CF -->|Vérifie les critères| FS[("Cloud Firestore (Plages matin/soir, jours, retour actif)") ]
+    CF -->|1. Interrogation SIRI Lite (si fenêtre active)| PRIM["API IDFM PRIM (Plateforme Régionale)"]
+    PRIM -->|2. Statuts temps réel (Aller & Retour)| CF
+    CF -->|3. Anti-spam / Déduplication| FS
     CF -->|4. Push Notification| FCM["Firebase Cloud Messaging (Topic: trains_meudon_montparnasse)"]
-    FCM -->|Alerte instantanée| ANDROID["Application Android Dédiée (Jetpack Compose)"]
+    FCM -->|Alerte instantanée (sens précisé)| ANDROID["Application Android (Jetpack Compose)"]
+    ANDROID -->|Déclencheur retour 1h/2h & Réglages| FS
 ```
 
 ---
@@ -131,8 +135,10 @@ Tous les paramètres sont configurables dans `backend/config.py` ou via des vari
 | Variable | Description | Valeur par défaut |
 | :--- | :--- | :--- |
 | `PRIM_MONITORING_REF` | Identifiant StopArea IDFM de la gare | `STIF:StopArea:SP:43162:` (Meudon) |
-| `DESTINATION_FILTER` | Mot-clé destination | `Montparnasse` |
-| `START_HOUR` / `START_MINUTE` | Début de la surveillance | `7`h `00` |
-| `END_HOUR` / `END_MINUTE` | Fin de la surveillance | `9`h `30` |
+| `MORNING_START_HOUR` / `_MINUTE` | Début de la surveillance matin (vers Paris) | `7`h `00` |
+| `MORNING_END_HOUR` / `_MINUTE` | Fin de la surveillance matin (vers Paris) | `9`h `30` |
+| `EVENING_START_HOUR` / `_MINUTE` | Début de la surveillance soir (vers Meudon) | `17`h `00` |
+| `EVENING_END_HOUR` / `_MINUTE` | Fin de la surveillance soir (vers Meudon) | `19`h `30` |
 | `ACTIVE_DAYS` | Jours actifs (0=Lun, 4=Ven) | `0,1,2,3,4` |
+| `FREQUENCY_MINUTES` | Intervalle minimal entre 2 appels API PRIM | `3` (minutes) |
 | `FCM_TOPIC` | Nom du topic Firebase | `trains_meudon_montparnasse` |

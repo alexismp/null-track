@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Alexis Moussine-Pouchkine
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.nulltrack.ui
 
 import androidx.compose.foundation.background
@@ -45,15 +61,25 @@ fun HomeScreen(
     onCancelQuickMonitoring: () -> Unit
 ) {
     val context = LocalContext.current
-    val isMonitoringActive = schedule.isMonitoringActiveNow()
+
+    // Horloge périodique pour basculer automatiquement l'état lors du franchissement d'horaire (ex: 17h00)
+    var currentTimeMillis by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(30_000)
+            currentTimeMillis = System.currentTimeMillis()
+        }
+    }
+
+    val isMonitoringActive = remember(schedule, currentTimeMillis) { schedule.isMonitoringActiveNow() }
 
     // Détection de position de l'utilisateur
     val detection = remember { LocationHelper.detectCommuteDirection(context) }
     var overrideDirection by remember { mutableStateOf<CommuteDirection?>(null) }
     val effectiveDirection = overrideDirection ?: detection.direction
 
-    // Direction active lors de la surveillance
-    val activeDirectionCode = schedule.quickMonitoringDirection ?: effectiveDirection.code
+    // Direction active lors de la surveillance (programmée ou ponctuelle)
+    val activeDirectionCode = schedule.getActiveDirectionCode() ?: effectiveDirection.code
     var selectedFilter by remember(activeDirectionCode, isMonitoringActive) {
         mutableStateOf(activeDirectionCode)
     }
@@ -352,10 +378,11 @@ fun SurveillanceControlCard(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = if (isMonitoringActive)
-                                "Surveillance Active 🟢"
-                            else
-                                "Surveillance Géolocalisée",
+                            text = if (isMonitoringActive) {
+                                if (schedule.isQuickMonitoringActive()) "Surveillance Ponctuelle Active 🟢" else "Surveillance Programmée Active 🟢"
+                            } else {
+                                "Surveillance Géolocalisée"
+                            },
                             fontWeight = FontWeight.Bold,
                             fontSize = 17.sp,
                             color = if (isMonitoringActive) SuccessGreen else TextPrimary
@@ -363,7 +390,7 @@ fun SurveillanceControlCard(
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = if (isMonitoringActive)
-                                "Sens : ${schedule.getQuickMonitoringDirectionText()} • Fin à ${schedule.getQuickMonitoringRemainingText() ?: "--:--"}"
+                                "Sens : ${schedule.getActiveDirectionText()} • Fin à ${schedule.getActiveRemainingText() ?: "--:--"}"
                             else
                                 "📍 $locationLabel • Sens : ${effectiveDirection.label}",
                             fontSize = 14.sp,

@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 Alexis Moussine-Pouchkine
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.nulltrack.data
 
 import java.text.SimpleDateFormat
@@ -117,6 +133,60 @@ data class ScheduleConfig(
     }
 
     fun getReturnCommuteRemainingText(): String? = getQuickMonitoringRemainingText()
+
+    fun getActiveDirectionCode(): String? {
+        if (isQuickMonitoringActive() && quickMonitoringDirection != null) {
+            return quickMonitoringDirection
+        }
+        if (isWindowActiveNow()) {
+            val cal = java.util.Calendar.getInstance(TimeZone.getTimeZone("Europe/Paris"))
+            val currentMinutes = cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE)
+            val mStart = morningStartHour * 60 + morningStartMinute
+            val mEnd = morningEndHour * 60 + morningEndMinute
+            if (morningEnabled && currentMinutes in mStart..mEnd) {
+                return "TO_PARIS"
+            }
+            val eStart = eveningStartHour * 60 + eveningStartMinute
+            val eEnd = eveningEndHour * 60 + eveningEndMinute
+            if (eveningEnabled && currentMinutes in eStart..eEnd) {
+                return "TO_MEUDON"
+            }
+        }
+        return null
+    }
+
+    fun getActiveRemainingText(): String? {
+        if (isQuickMonitoringActive()) {
+            return getQuickMonitoringRemainingText()
+        }
+        if (isWindowActiveNow()) {
+            val cal = java.util.Calendar.getInstance(TimeZone.getTimeZone("Europe/Paris"))
+            val currentMinutes = cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE)
+            val mStart = morningStartHour * 60 + morningStartMinute
+            val mEnd = morningEndHour * 60 + morningEndMinute
+            if (morningEnabled && currentMinutes in mStart..mEnd) {
+                return String.format(Locale.FRANCE, "%02dh%02d", morningEndHour, morningEndMinute)
+            }
+            val eStart = eveningStartHour * 60 + eveningStartMinute
+            val eEnd = eveningEndHour * 60 + eveningEndMinute
+            if (eveningEnabled && currentMinutes in eStart..eEnd) {
+                return String.format(Locale.FRANCE, "%02dh%02d", eveningEndHour, eveningEndMinute)
+            }
+        }
+        return null
+    }
+
+    /**
+     * Libellé lisible de la direction actuellement surveillée en mode ponctuel ou programmé.
+     */
+    fun getActiveDirectionText(): String {
+        val code = getActiveDirectionCode()
+        return when (code) {
+            "TO_PARIS" -> "Meudon ➔ Paris"
+            "TO_MEUDON" -> "Paris ➔ Meudon"
+            else -> getQuickMonitoringDirectionText()
+        }
+    }
 
     /**
      * Libellé lisible de la direction actuellement surveillée en mode ponctuel.

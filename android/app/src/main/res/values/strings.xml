@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Null-Track</string>
+    <string name="channel_name">Alertes Trains Annulés</string>
+    <string name="channel_description">Notifications immédiates lors de l'annulation d'un train de la Ligne N</string>
+</resources>

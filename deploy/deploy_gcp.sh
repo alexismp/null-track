@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -e
+
+# Configuration par défaut
+PROJECT_ID=${GCP_PROJECT_ID:-$(gcloud config get-value project 2>/dev/null)}
+REGION=${GCP_REGION:-"europe-west1"}
+SERVICE_NAME="null-track-monitor"
+SCHEDULER_JOB_NAME="null-track-scheduler"
+
+echo "=========================================================="
+echo " 🚀 Déploiement de Null-Track sur Google Cloud Platform"
+echo "=========================================================="
+echo "Projet GCP : ${PROJECT_ID}"
+echo "Région     : ${REGION}"
+echo "Service    : ${SERVICE_NAME}"
+echo "=========================================================="
+
+if [ -z "$PROJECT_ID" ]; then
+    echo "❌ Erreur : Aucun projet GCP sélectionné. Définissez GCP_PROJECT_ID ou exécutez 'gcloud config set project <ID>'."
+    exit 1
+fi
+
+if [ -z "$PRIM_API_KEY" ]; then
+    echo "⚠️  Attention : La variable d'environnement PRIM_API_KEY n'est pas définie."
+    read -p "Veuillez saisir votre clé API IDFM PRIM : " PRIM_API_KEY
+fi
+
+# 1. Activation des APIs GCP nécessaires
+echo "📦 Activation des APIs nécessaires (Cloud Functions, Run, Scheduler, Firestore, FCM)..."
+gcloud services enable \
+    cloudfunctions.googleapis.com \
+    run.googleapis.com \
+    cloudbuild.googleapis.com \
+    cloudscheduler.googleapis.com \
+    firestore.googleapis.com \
+    fcm.googleapis.com \
+    --project="${PROJECT_ID}"
+
+# 2. Déploiement de la Cloud Function Gen2
+echo "⚡ Déploiement de la fonction Cloud Functions Gen2..."
+gcloud functions deploy "${SERVICE_NAME}" \
+    --gen2 \
+    --runtime=python311 \
+    --region="${REGION}" \
+    --source=./backend \
+    --entry-point=check_trains_http \
+    --trigger-http \
+    --allow-unauthenticated \
+    --set-env-vars="PRIM_API_KEY=${PRIM_API_KEY},FIREBASE_PROJECT_ID=${PROJECT_ID}" \
+    --project="${PROJECT_ID}"
+
+# Récupération de l'URL de la fonction
+FUNCTION_URL=$(gcloud functions describe "${SERVICE_NAME}" --gen2 --region="${REGION}" --project="${PROJECT_ID}" --format="value(serviceConfig.uri)")
+echo "✅ Cloud Function déployée avec succès : ${FUNCTION_URL}"
+
+# 3. Création ou mise à jour du job Cloud Scheduler
+echo "⏰ Configuration du job Cloud Scheduler (Lundi au Vendredi, 07h00 - 09h30, toutes les 2 min)..."
+if gcloud scheduler jobs describe "${SCHEDULER_JOB_NAME}" --location="${REGION}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+    gcloud scheduler jobs update http "${SCHEDULER_JOB_NAME}" \
+        --location="${REGION}" \
+        --schedule="*/2 7-9 * * 1-5" \
+        --time-zone="Europe/Paris" \
+        --uri="${FUNCTION_URL}" \
+        --http-method=GET \
+        --project="${PROJECT_ID}"
+    echo "✅ Job Scheduler mis à jour."
+else
+    gcloud scheduler jobs create http "${SCHEDULER_JOB_NAME}" \
+        --location="${REGION}" \
+        --schedule="*/2 7-9 * * 1-5" \
+        --time-zone="Europe/Paris" \
+        --uri="${FUNCTION_URL}" \
+        --http-method=GET \
+        --project="${PROJECT_ID}"
+    echo "✅ Job Scheduler créé."
+fi
+
+echo "=========================================================="
+echo "🎉 Déploiement terminé avec succès !"
+echo "Pour tester immédiatement la fonction en direct :"
+echo "  curl -s \"${FUNCTION_URL}?force=true\" | jq"
+echo "=========================================================="

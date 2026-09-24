@@ -1,0 +1,40 @@
+# Environment & secrets
+.env
+*.env
+!.env.example
+*.env.local
+*.env.*.local
+*.pem
+*.key
+service-account*.json
+credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+.venv/
+env/
+venv/
+ENV/
+.pytest_cache/
+
+# Android & Gradle
+.gradle/
+**/build/
+local.properties
+*.keystore
+*.jks
+google-services.json
+!google-services.json.example
+
+# IDE & OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db

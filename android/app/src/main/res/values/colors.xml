@@ -8,4 +8,5 @@
     <color name="widget_text_light">#E2E8F0</color>
     <color name="widget_status_active">#4CAF50</color>
     <color name="widget_btn_active">#DC2626</color>
+    <color name="ic_launcher_background">#DFDFDF</color>
 </resources>

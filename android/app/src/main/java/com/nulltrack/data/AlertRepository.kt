@@ -37,6 +37,17 @@ class AlertRepository(context: Context) {
         prefs.edit().remove("alerts_json").apply()
     }
 
+    fun hasRecentAlerts(maxAgeMinutes: Long = 90): Boolean {
+        val cutoff = System.currentTimeMillis() - (maxAgeMinutes * 60 * 1000)
+        return _alerts.value.any { it.receivedAtTimestamp >= cutoff }
+    }
+
+    fun getLatestAlertSummary(): String? {
+        val latest = _alerts.value.firstOrNull() ?: return null
+        val prefix = if (latest.status.equals("RETARDÉ", ignoreCase = true)) "Retard" else "Suppression"
+        return "$prefix : ${latest.missionCode} (${latest.departureTime})"
+    }
+
     private fun loadAlertsFromPrefs() {
         val jsonStr = prefs.getString("alerts_json", null) ?: return
         try {

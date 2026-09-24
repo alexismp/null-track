@@ -1,0 +1,14 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Train silhouette avec découpe pour le badge d'alerte -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,2C8,2 4,2.5 4,6v9.5C4,17.43 5.57,19 7.5,19L6,20.5v0.5h12v-0.5L16.5,19c1.93,0 3.5,-1.57 3.5,-3.5V13.5c-0.63,0.32 -1.3,0.5 -2,0.5 -2.48,0 -4.5,-2.02 -4.5,-4.5 0,-1.48 0.72,-2.79 1.83,-3.62C14.73,5.32 13.52,5.08 12,5H6V3.5C7.5,3.1 9.5,3 12,3c1.6,0 3.03,0.06 4.25,0.18C16.94,2.44 17.9,2 19,2c-2.12,-0.5 -4.75,-0.75 -7,-0.75zM6,8h6.5c-0.32,0.61 -0.5,1.3 -0.5,2 0,0.7 0.18,1.39 0.5,2H6V8zM8.5,15c0.83,0 1.5,0.67 1.5,1.5S9.33,18 8.5,18 7,17.33 7,16.5 7.67,15 8.5,15zM15.5,15c0.83,0 1.5,0.67 1.5,1.5s-0.67,1.5 -1.5,1.5 -1.5,-0.67 -1.5,-1.5 0.67,-1.5 1.5,-1.5z" />
+    <!-- Badge d'alerte circulaire avec point d'exclamation -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M19,4c-2.21,0 -4,1.79 -4,4s1.79,4 4,4 4,-1.79 4,-4 -1.79,-4 -4,-4zM18.25,6h1.5v3h-1.5V6zM19,11c-0.41,0 -0.75,-0.34 -0.75,-0.75s0.34,-0.75 0.75,-0.75 0.75,0.34 0.75,0.75 -0.34,0.75 -0.75,0.75z" />
+</vector>

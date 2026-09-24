@@ -15,7 +15,9 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
-class DeparturesRepository private constructor(context: Context) {
+import android.content.Intent
+
+class DeparturesRepository private constructor(private val context: Context) {
 
     private val _departures = MutableStateFlow<List<TrainDeparture>>(emptyList())
     val departures: StateFlow<List<TrainDeparture>> = _departures.asStateFlow()
@@ -54,6 +56,7 @@ class DeparturesRepository private constructor(context: Context) {
                     val rawUpdated = snapshot.getString("updated_at")
                     _lastUpdated.value = formatIsoToTime(rawUpdated)
                     Log.d(TAG, "${parsed.size} prochains départs synchronisés depuis Firestore.")
+                    context.sendBroadcast(Intent("com.nulltrack.widget.ACTION_REFRESH").setPackage(context.packageName))
                 } else {
                     // Si aucun document distant n'existe encore, données d'exemple pour Meudon
                     if (_departures.value.isEmpty()) {
@@ -69,6 +72,27 @@ class DeparturesRepository private constructor(context: Context) {
                 _lastUpdated.value = "Mode local"
             }
         }
+    }
+
+    fun hasDisruptions(minDelayMinutes: Int = 5): Boolean {
+        return _departures.value.any {
+            it.isCancelled || it.delayMinutes >= minDelayMinutes ||
+            it.status == DepartureStatus.CANCELLED || it.status == DepartureStatus.DELAYED
+        }
+    }
+
+    fun getDisruptionSummary(minDelayMinutes: Int = 5): String? {
+        val cancelled = _departures.value.filter { it.isCancelled || it.status == DepartureStatus.CANCELLED }
+        if (cancelled.isNotEmpty()) {
+            val t = cancelled.first()
+            return "Train ${t.missionCode} ${t.aimedTime} supprimé"
+        }
+        val delayed = _departures.value.filter { !it.isCancelled && it.delayMinutes >= minDelayMinutes }
+        if (delayed.isNotEmpty()) {
+            val t = delayed.first()
+            return "Train ${t.missionCode} ${t.aimedTime} retardé (+${t.delayMinutes}m)"
+        }
+        return null
     }
 
     fun refresh() {

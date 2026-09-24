@@ -11,6 +11,8 @@ import android.util.Log
 import android.widget.RemoteViews
 import com.nulltrack.MainActivity
 import com.nulltrack.R
+import com.nulltrack.data.AlertRepository
+import com.nulltrack.data.DeparturesRepository
 import com.nulltrack.data.ScheduleConfig
 import com.nulltrack.data.ScheduleRepository
 import com.nulltrack.location.LocationHelper
@@ -86,19 +88,64 @@ class NullTrackWidgetProvider : AppWidgetProvider() {
                 val views = RemoteViews(context.packageName, R.layout.widget_nulltrack)
                 val isActive = schedule.isQuickMonitoringActive()
 
-                if (isActive) {
-                    views.setTextViewText(R.id.widget_status_badge, "🟢 Actif")
-                    views.setTextColor(R.id.widget_status_badge, Color.parseColor("#4CAF50"))
+                val departuresRepo = DeparturesRepository.getInstance(context)
+                val alertRepo = AlertRepository.getInstance(context)
+                val hasDisruption = departuresRepo.hasDisruptions() || alertRepo.hasRecentAlerts()
+                val disruptionSummary = departuresRepo.getDisruptionSummary() ?: alertRepo.getLatestAlertSummary()
 
-                    views.setTextViewText(
-                        R.id.widget_location_text,
-                        "Sens : ${schedule.getQuickMonitoringDirectionText()}"
-                    )
+                // Intent universel pour ouvrir l'application sur le tableau des départs
+                val appIntent = Intent(context, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    putExtra(MainActivity.EXTRA_OPEN_DEPARTURES, true)
+                }
+                val appPendingIntent = PendingIntent.getActivity(
+                    context,
+                    1,
+                    appIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+
+                // 1. État visuel du widget : passe au ROUGE si perturbation détectée
+                if (hasDisruption) {
+                    views.setInt(R.id.widget_root, "setBackgroundResource", R.drawable.widget_background_alert)
+                    views.setTextViewText(R.id.widget_status_badge, "🚨 PERTURBATION")
+                    views.setTextColor(R.id.widget_status_badge, Color.parseColor("#FEE2E2"))
                     views.setTextViewText(
                         R.id.widget_detail_text,
-                        "Fin : ${schedule.getQuickMonitoringRemainingText() ?: "--:--"}"
+                        disruptionSummary ?: "Train annulé ou retardé"
                     )
+                    views.setTextColor(R.id.widget_detail_text, Color.parseColor("#FFFFFF"))
+                    views.setInt(R.id.widget_open_app_button, "setBackgroundResource", R.drawable.widget_button_alert)
+                } else {
+                    views.setInt(R.id.widget_root, "setBackgroundResource", R.drawable.widget_background)
+                    views.setInt(R.id.widget_open_app_button, "setBackgroundResource", R.drawable.widget_button_inactive)
 
+                    if (isActive) {
+                        views.setTextViewText(R.id.widget_status_badge, "🟢 Active")
+                        views.setTextColor(R.id.widget_status_badge, Color.parseColor("#4CAF50"))
+
+                        val remaining = schedule.getQuickMonitoringRemainingText()
+                        views.setTextViewText(
+                            R.id.widget_detail_text,
+                            if (remaining != null) "Surveillance active (fin $remaining)" else "Surveillance active • À l'heure"
+                        )
+                        views.setTextColor(R.id.widget_detail_text, Color.parseColor("#94A3B8"))
+                    } else {
+                        views.setTextViewText(R.id.widget_status_badge, "⏸️ Inactive")
+                        views.setTextColor(R.id.widget_status_badge, Color.parseColor("#94A3B8"))
+
+                        val durMinutes = schedule.quickMonitoringDurationMinutes
+                        val durLabel = if (durMinutes >= 60) "${durMinutes / 60}h" else "${durMinutes}m"
+                        views.setTextViewText(
+                            R.id.widget_detail_text,
+                            "Toucher pour surveiller ($durLabel)"
+                        )
+                        views.setTextColor(R.id.widget_detail_text, Color.parseColor("#94A3B8"))
+                    }
+                }
+
+                // 2. Bouton d'action Démarrer ou Arrêter la surveillance
+                if (isActive) {
                     views.setTextViewText(R.id.widget_action_button, "⏹️ Arrêter")
                     views.setInt(
                         R.id.widget_action_button,
@@ -106,23 +153,9 @@ class NullTrackWidgetProvider : AppWidgetProvider() {
                         R.drawable.widget_button_active
                     )
                 } else {
-                    val detection = LocationHelper.detectCommuteDirection(context)
-
-                    views.setTextViewText(R.id.widget_status_badge, "⏸️ Inactif")
-                    views.setTextColor(R.id.widget_status_badge, Color.parseColor("#94A3B8"))
-
-                    views.setTextViewText(
-                        R.id.widget_location_text,
-                        "📍 ${detection.locationLabel}"
-                    )
-                    views.setTextViewText(
-                        R.id.widget_detail_text,
-                        "Sens : ${detection.direction.label}"
-                    )
-
                     val durMinutes = schedule.quickMonitoringDurationMinutes
                     val durLabel = if (durMinutes >= 60) "${durMinutes / 60}h" else "${durMinutes}m"
-                    views.setTextViewText(R.id.widget_action_button, "▶️ Activer ($durLabel)")
+                    views.setTextViewText(R.id.widget_action_button, "▶️ Démarrer ($durLabel)")
                     views.setInt(
                         R.id.widget_action_button,
                         "setBackgroundResource",
@@ -130,7 +163,6 @@ class NullTrackWidgetProvider : AppWidgetProvider() {
                     )
                 }
 
-                // Intent pour le bouton d'action Activer / Arrêter
                 val toggleIntent = Intent(context, NullTrackWidgetProvider::class.java).apply {
                     action = ACTION_TOGGLE_MONITORING
                 }
@@ -142,22 +174,14 @@ class NullTrackWidgetProvider : AppWidgetProvider() {
                 )
                 views.setOnClickPendingIntent(R.id.widget_action_button, togglePendingIntent)
 
-                // Intent pour ouvrir l'application sur le tableau des départs
-                val appIntent = Intent(context, MainActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                    putExtra(MainActivity.EXTRA_OPEN_DEPARTURES, true)
-                }
-                val appPendingIntent = PendingIntent.getActivity(
-                    context,
-                    1,
-                    appIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
+                // 3. Clics pour ouvrir l'application (en-tête, fond, détails, bouton départs)
                 views.setOnClickPendingIntent(R.id.widget_open_app_button, appPendingIntent)
+                views.setOnClickPendingIntent(R.id.widget_header, appPendingIntent)
                 views.setOnClickPendingIntent(R.id.widget_title, appPendingIntent)
+                views.setOnClickPendingIntent(R.id.widget_detail_text, appPendingIntent)
 
                 appWidgetManager.updateAppWidget(appWidgetId, views)
-                Log.d(TAG, "Widget $appWidgetId mis à jour avec succès (actif=$isActive)")
+                Log.d(TAG, "Widget $appWidgetId mis à jour (actif=$isActive, perturbation=$hasDisruption)")
             } catch (e: Throwable) {
                 Log.e(TAG, "Exception lors de la mise à jour du widget $appWidgetId: ${e.message}", e)
             }

@@ -13,6 +13,7 @@ import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.nulltrack.MainActivity
+import com.nulltrack.R
 import com.nulltrack.data.AlertRepository
 import com.nulltrack.data.TrainAlert
 
@@ -56,6 +57,7 @@ class NullTrackMessagingService : FirebaseMessagingService() {
             status = status
         )
         AlertRepository.getInstance(applicationContext).addAlert(alert)
+        sendBroadcast(Intent("com.nulltrack.widget.ACTION_REFRESH").setPackage(packageName))
 
         // 2. Affichage de la notification système haute priorité
         showSystemNotification(title, body)
@@ -92,7 +94,7 @@ class NullTrackMessagingService : FirebaseMessagingService() {
 
         val defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
         val notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setSmallIcon(R.drawable.ic_notification_train)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))

@@ -1,16 +1,20 @@
+from __future__ import annotations
 from datetime import datetime, timezone
 import logging
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional
+
 try:
     import functions_framework
     from flask import Request, jsonify
-    _HAS_FRAMEWORK = True
 except ImportError:
-    _HAS_FRAMEWORK = False
-    functions_framework = None
+    class _MockFramework:
+        @staticmethod
+        def http(f):
+            return f
+    functions_framework = _MockFramework()
     Request = Any
-    def jsonify(data):
+    def jsonify(data, *args, **kwargs):
         return data
 
 from fcm_client import send_cancellation_alert
@@ -134,6 +138,7 @@ def run_cancellation_check(force: bool = False) -> Dict[str, Any]:
         }
 
 
+@functions_framework.http
 def check_trains_http(request: Request):
     """
     Point d'entrée HTTP pour Cloud Run functions,
@@ -219,10 +224,6 @@ def check_trains_http(request: Request):
 
     status_code = 200 if result.get("status") in ("success", "skipped") else 500
     return jsonify(result), status_code
-
-
-if functions_framework is not None:
-    check_trains_http = functions_framework.http(check_trains_http)
 
 
 if __name__ == "__main__":

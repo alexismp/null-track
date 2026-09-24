@@ -1,6 +1,7 @@
+from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from config import (
     ACTIVE_DAYS,

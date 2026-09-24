@@ -3,21 +3,24 @@ set -e
 
 # Configuration par défaut
 PROJECT_ID=${GCP_PROJECT_ID:-$(gcloud config get-value project 2>/dev/null)}
+if [ -z "$PROJECT_ID" ] || [ "$PROJECT_ID" = "(unset)" ]; then
+    PROJECT_ID="alexismp-runner"
+fi
 REGION=${GCP_REGION:-"europe-west1"}
 SERVICE_NAME="null-track-monitor"
 SCHEDULER_JOB_NAME="null-track-scheduler"
 
 echo "=========================================================="
-echo " 🚀 Déploiement de Null-Track sur Google Cloud Platform"
+echo " 🚀 Déploiement de Null-Track (Cloud Run functions) sur GCP"
 echo "=========================================================="
 echo "Projet GCP : ${PROJECT_ID}"
 echo "Région     : ${REGION}"
 echo "Service    : ${SERVICE_NAME}"
+echo "Technologie: Cloud Run functions (Gen2)"
 echo "=========================================================="
 
-if [ -z "$PROJECT_ID" ]; then
-    echo "❌ Erreur : Aucun projet GCP sélectionné. Définissez GCP_PROJECT_ID ou exécutez 'gcloud config set project <ID>'."
-    exit 1
+if [ -z "$PRIM_API_KEY" ] && [ -f "./backend/.env" ]; then
+    PRIM_API_KEY=$(grep '^PRIM_API_KEY=' ./backend/.env | cut -d '=' -f2- | tr -d ' "'\''')
 fi
 
 if [ -z "$PRIM_API_KEY" ]; then

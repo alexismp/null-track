@@ -1,0 +1,14 @@
+.gcloudignore
+.git
+.gitignore
+.env
+*.env
+android/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/

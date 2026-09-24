@@ -1,0 +1,13 @@
+.env
+*.env
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+.dockerignore
+.gcloudignore
+test_local.py

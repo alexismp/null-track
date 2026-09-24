@@ -38,3 +38,4 @@ google-services.json
 .vscode/
 .DS_Store
 Thumbs.db
+*.log

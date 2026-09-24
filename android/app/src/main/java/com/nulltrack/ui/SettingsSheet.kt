@@ -351,7 +351,76 @@ fun SettingsSheet(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // 6. Fréquence
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // 6. Paramètres du Widget & Surveillance ponctuelle
+            Text(
+                text = "⏱️ Durée par défaut du Widget / Surveillance rapide :",
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                color = TextPrimary
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            var quickDuration by remember(schedule) { mutableStateOf(schedule.quickMonitoringDurationMinutes) }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(30 to "30 min", 60 to "1 heure ⭐", 90 to "1h30", 120 to "2 heures").forEach { (duration, label) ->
+                    val isSelected = quickDuration == duration
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { quickDuration = duration },
+                        label = { Text(label, fontSize = 12.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = TransilienN,
+                            selectedLabelColor = Color.White
+                        )
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // 7. Notification des Retards en plus des annulations
+            var notifyDelays by remember(schedule) { mutableStateOf(schedule.notifyDelays) }
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = BackgroundLight)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "⏱️ Notifier les retards (≥ 5 min)",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = TextPrimary
+                        )
+                        Text(
+                            text = "Alerter aussi en cas de train retardé en plus des suppressions fermes",
+                            fontSize = 11.sp,
+                            color = TextSecondary
+                        )
+                    }
+                    Switch(
+                        checked = notifyDelays,
+                        onCheckedChange = { notifyDelays = it },
+                        modifier = Modifier.scale(0.85f),
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = TransilienN)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // 8. Fréquence
             Text(
                 text = "📡 Fréquence des vérifications :",
                 fontWeight = FontWeight.SemiBold,
@@ -377,7 +446,7 @@ fun SettingsSheet(
                 }
             }
             Text(
-                text = "Les appels API PRIM ne seront exécutés que toutes les $frequencyMinutes minutes pendant vos fenêtres actives (matin, soir ou déclencheur retour).",
+                text = "Les appels API PRIM ne seront exécutés que toutes les $frequencyMinutes minutes pendant vos fenêtres actives (matin, soir ou déclencheur rapide).",
                 fontSize = 12.sp,
                 color = TextSecondary,
                 modifier = Modifier.padding(top = 4.dp)
@@ -401,7 +470,9 @@ fun SettingsSheet(
                         eveningEndHour = eveningEndHour,
                         eveningEndMinute = eveningEndMinute,
                         activeDays = activeDays,
-                        frequencyMinutes = frequencyMinutes
+                        frequencyMinutes = frequencyMinutes,
+                        quickMonitoringDurationMinutes = quickDuration,
+                        notifyDelays = notifyDelays
                     )
                     onSaveSchedule(updated)
                     onDismiss()

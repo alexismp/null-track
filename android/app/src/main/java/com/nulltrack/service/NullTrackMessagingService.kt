@@ -46,14 +46,14 @@ class NullTrackMessagingService : FirebaseMessagingService() {
         val stopName = data["stop_name"] ?: "Meudon"
         val destination = data["destination"] ?: "Paris-Montparnasse"
 
-        // 1. Sauvegarde dans l'historique local de l'application
+        val status = data["status"] ?: if (title.contains("retard", ignoreCase = true)) "RETARDÉ" else "ANNULÉ"
         val alert = TrainAlert(
             id = trainId,
             missionCode = missionCode,
             departureTime = departureTime,
             stopName = stopName,
             destination = destination,
-            status = "ANNULÉ"
+            status = status
         )
         AlertRepository.getInstance(applicationContext).addAlert(alert)
 

@@ -11,23 +11,29 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DirectionsTransit
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PauseCircle
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Work
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nulltrack.data.ScheduleConfig
 import com.nulltrack.data.TrainAlert
+import com.nulltrack.location.CommuteDirection
+import com.nulltrack.location.LocationHelper
 import com.nulltrack.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -43,8 +49,8 @@ fun HomeScreen(
     onClearHistoryClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onViewDeparturesClick: () -> Unit,
-    onTriggerReturnCommute: (Int) -> Unit = {},
-    onCancelReturnCommute: () -> Unit = {}
+    onTriggerQuickMonitoring: (durationMinutes: Int, direction: String) -> Unit = { _, _ -> },
+    onCancelQuickMonitoring: () -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -98,11 +104,11 @@ fun HomeScreen(
         ) {
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Carte Déclencheur Rapide : Retour du travail (Paris ➔ Meudon)
-            ReturnCommuteCard(
+            // Carte Déclencheur Ponctuel Géolocalisé (Widget & In-App)
+            QuickMonitoringLocationCard(
                 schedule = schedule,
-                onTriggerReturnCommute = onTriggerReturnCommute,
-                onCancelReturnCommute = onCancelReturnCommute
+                onTriggerQuickMonitoring = onTriggerQuickMonitoring,
+                onCancelQuickMonitoring = onCancelQuickMonitoring
             )
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -174,7 +180,7 @@ fun HomeScreen(
 
             // Titre de section
             Text(
-                text = "Historique des alertes reçues",
+                text = "Historique des alertes (Annulations & Retards)",
                 fontWeight = FontWeight.Bold,
                 fontSize = 17.sp,
                 color = TextPrimary
@@ -199,24 +205,35 @@ fun HomeScreen(
 }
 
 /**
- * Carte dédiée au retour du travail (Paris ➔ Meudon)
- * Permet d'activer en 1 clic une fenêtre de vérification de 1h ou 2h.
+ * Carte intelligente tenant compte de la localisation de l'utilisateur :
+ * - Si à Paris -> Sens Paris ➔ Banlieue (Paris ➔ Meudon)
+ * - Si proche de Meudon -> Sens Banlieue ➔ Paris (Meudon ➔ Paris)
+ * Active la surveillance pour une durée paramétrable (ex: 1 heure)
  */
 @Composable
-fun ReturnCommuteCard(
+fun QuickMonitoringLocationCard(
     schedule: ScheduleConfig,
-    onTriggerReturnCommute: (Int) -> Unit,
-    onCancelReturnCommute: () -> Unit
+    onTriggerQuickMonitoring: (Int, String) -> Unit,
+    onCancelQuickMonitoring: () -> Unit
 ) {
-    val isReturnActive = schedule.isReturnCommuteActive()
+    val context = LocalContext.current
+    val isQuickActive = schedule.isQuickMonitoringActive()
+
+    // Détection en direct de la position
+    val detection = remember { LocationHelper.detectCommuteDirection(context) }
+    var overrideDirection by remember { mutableStateOf<CommuteDirection?>(null) }
+    val effectiveDirection = overrideDirection ?: detection.direction
+
+    val durationMin = schedule.quickMonitoringDurationMinutes
+    val durationLabel = if (durationMin >= 60) "${durationMin / 60}h" else "${durationMin} min"
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isReturnActive) Color(0xFFE8F5E9) else SurfaceLight
+            containerColor = if (isQuickActive) Color(0xFFE8F5E9) else SurfaceLight
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isReturnActive) 3.dp else 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isQuickActive) 3.dp else 1.dp)
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -227,31 +244,34 @@ fun ReturnCommuteCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
-                            .size(32.dp)
+                            .size(34.dp)
                             .clip(CircleShape)
-                            .background(if (isReturnActive) SuccessGreen else Color(0xFFE3F2FD)),
+                            .background(if (isQuickActive) SuccessGreen else Color(0xFFE3F2FD)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = if (isReturnActive) Icons.Default.DirectionsTransit else Icons.Default.Work,
+                            imageVector = if (isQuickActive) Icons.Default.DirectionsTransit else Icons.Default.LocationOn,
                             contentDescription = null,
-                            tint = if (isReturnActive) Color.White else TransilienN,
+                            tint = if (isQuickActive) Color.White else TransilienN,
                             modifier = Modifier.size(18.dp)
                         )
                     }
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
                         Text(
-                            text = if (isReturnActive) "Surveillance Retour Active 🟢" else "Je quitte le travail (Paris ➔ Meudon)",
+                            text = if (isQuickActive)
+                                "Surveillance Active 🟢 (${schedule.getQuickMonitoringDirectionText()})"
+                            else
+                                "Surveillance Rapide & Géolocalisée",
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
-                            color = if (isReturnActive) SuccessGreen else TextPrimary
+                            color = if (isQuickActive) SuccessGreen else TextPrimary
                         )
                         Text(
-                            text = if (isReturnActive)
-                                "Alertes actives jusqu'à ${schedule.getReturnCommuteRemainingText() ?: ""}"
+                            text = if (isQuickActive)
+                                "Fin à ${schedule.getQuickMonitoringRemainingText() ?: "--:--"} • Annulations & Retards"
                             else
-                                "Déclencher une surveillance ponctuelle pour le trajet retour",
+                                "📍 ${detection.locationLabel} • Sens : ${effectiveDirection.label}",
                             fontSize = 12.sp,
                             color = TextSecondary
                         )
@@ -261,9 +281,9 @@ fun ReturnCommuteCard(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            if (isReturnActive) {
+            if (isQuickActive) {
                 OutlinedButton(
-                    onClick = onCancelReturnCommute,
+                    onClick = onCancelQuickMonitoring,
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFC62828)),
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.fillMaxWidth(),
@@ -271,15 +291,16 @@ fun ReturnCommuteCard(
                 ) {
                     Icon(imageVector = Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Arrêter la surveillance retour", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Arrêter la surveillance", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             } else {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // Bouton principal d'activation (sens détecté automatiquement)
                     Button(
-                        onClick = { onTriggerReturnCommute(1) },
+                        onClick = { onTriggerQuickMonitoring(durationMin, effectiveDirection.code) },
                         colors = ButtonDefaults.buttonColors(containerColor = TransilienN),
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.weight(1f),
@@ -287,19 +308,28 @@ fun ReturnCommuteCard(
                     ) {
                         Icon(imageVector = Icons.Default.Timer, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Retour 1 heure", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "Activer ($durationLabel) • ${effectiveDirection.label}",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
 
-                    Button(
-                        onClick = { onTriggerReturnCommute(2) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0)),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(vertical = 6.dp)
+                    // Bouton pour inverser le sens si souhaité
+                    IconButton(
+                        onClick = {
+                            overrideDirection = if (effectiveDirection == CommuteDirection.TO_PARIS)
+                                CommuteDirection.TO_MEUDON
+                            else
+                                CommuteDirection.TO_PARIS
+                        },
+                        modifier = Modifier.size(36.dp)
                     ) {
-                        Icon(imageVector = Icons.Default.Timer, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Retour 2 heures", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Icon(
+                            imageVector = Icons.Default.SwapHoriz,
+                            contentDescription = "Inverser le sens",
+                            tint = TextSecondary
+                        )
                     }
                 }
             }
@@ -328,7 +358,7 @@ fun MonitoringStatusCard(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "Surveillance Bidirectionnelle",
+                    text = "Surveillance Programmée",
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 15.sp,
                     color = TextPrimary
@@ -416,7 +446,7 @@ fun MonitoringStatusCard(
             )
             Spacer(modifier = Modifier.height(3.dp))
             Text(
-                text = "📡 Fréquence : Toutes les ${schedule.frequencyMinutes} min (uniquement fenêtres actives)",
+                text = "📡 Alertes : Annulations ${if (schedule.notifyDelays) "+ Retards (≥ ${schedule.minDelayMinutes}m)" else ""}",
                 fontSize = 12.sp,
                 color = TextSecondary
             )
@@ -428,7 +458,7 @@ fun MonitoringStatusCard(
                 shape = RoundedCornerShape(8.dp),
                 contentPadding = PaddingValues(vertical = 5.dp)
             ) {
-                Text("Modifier les plages horaires matin / soir & jours", fontSize = 12.sp)
+                Text("Modifier les plages horaires, jours & durée du widget", fontSize = 12.sp)
             }
         }
     }
@@ -443,10 +473,17 @@ fun AlertCard(alert: TrainAlert) {
             alert.destination.contains("Montparnasse", ignoreCase = true)
     val directionLabel = if (isToParis) "Meudon ➔ Paris" else "Paris ➔ Meudon"
 
+    val isDelayed = alert.status.contains("RETARD", ignoreCase = true)
+
+    val cardBg = if (isDelayed) Color(0xFFFFF3E0) else CancelledRedLight
+    val badgeBg = if (isDelayed) Color(0xFFE65100) else CancelledRed
+    val badgeText = if (isDelayed) "RETARDÉ" else "ANNULÉ"
+    val icon = if (isDelayed) Icons.Default.Schedule else Icons.Default.Warning
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = CancelledRedLight),
+        colors = CardDefaults.cardColors(containerColor = cardBg),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
@@ -459,11 +496,11 @@ fun AlertCard(alert: TrainAlert) {
                 modifier = Modifier
                     .size(44.dp)
                     .clip(CircleShape)
-                    .background(CancelledRed),
+                    .background(badgeBg),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Default.Warning,
+                    imageVector = icon,
                     contentDescription = null,
                     tint = Color.White,
                     modifier = Modifier.size(24.dp)
@@ -482,13 +519,13 @@ fun AlertCard(alert: TrainAlert) {
                         text = "Train de ${alert.departureTime}",
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp,
-                        color = CancelledRed
+                        color = badgeBg
                     )
                     Text(
-                        text = "ANNULÉ",
+                        text = badgeText,
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 12.sp,
-                        color = CancelledRed
+                        color = badgeBg
                     )
                 }
                 Spacer(modifier = Modifier.height(2.dp))
@@ -537,14 +574,14 @@ fun EmptyStateCard() {
             )
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "Aucun train annulé",
+                text = "Trafic normal",
                 fontWeight = FontWeight.Bold,
                 fontSize = 16.sp,
                 color = TextPrimary
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "Les trains circulent normalement ou aucune suppression n'a été signalée pour l'instant. Vous recevrez une notification dès qu'une anomalie survient.",
+                text = "Les trains circulent normalement. Aucune annulation ni retard significatif n'a été signalé pour vos trajets surveillés.",
                 fontSize = 13.sp,
                 color = TextSecondary,
                 lineHeight = 18.sp

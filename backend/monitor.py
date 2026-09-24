@@ -14,7 +14,9 @@ from config import (
     EVENING_START_MINUTE,
     FORCE_CHECK,
     LINE_REF,
+    MIN_DELAY_MINUTES,
     MONITORING_REF,
+    NOTIFY_DELAYS,
     PRIM_API_KEY,
     PRIM_API_URL,
     START_HOUR,
@@ -80,7 +82,31 @@ def is_within_monitoring_window(
 
     active_directions: List[str] = []
 
-    # 3. Vérification du déclenchement ponctuel du retour (ex. 1h ou 2h en quittant le travail)
+    # 3. Vérification de la surveillance ponctuelle (Widget ou Déclencheur retour)
+    # A. Surveillance ponctuelle par Widget / Géolocalisation (quick_monitoring_until)
+    quick_until = cfg.get("quick_monitoring_until")
+    quick_dir = cfg.get("quick_monitoring_direction", "AUTO")
+    if quick_until:
+        try:
+            if isinstance(quick_until, (int, float)):
+                q_epoch = quick_until / 1000.0 if quick_until > 1e11 else float(quick_until)
+                q_dt = datetime.fromtimestamp(q_epoch, tz=timezone.utc)
+            elif isinstance(quick_until, str):
+                q_dt = datetime.fromisoformat(quick_until.replace("Z", "+00:00"))
+            else:
+                q_dt = quick_until
+
+            if now.astimezone(timezone.utc) < q_dt.astimezone(timezone.utc):
+                target_dirs = ["TO_PARIS", "TO_MEUDON"] if quick_dir in ("AUTO", None, "") else [quick_dir]
+                for td in target_dirs:
+                    if td not in active_directions:
+                        active_directions.append(td)
+                q_str = q_dt.astimezone(TIMEZONE).strftime("%H:%M")
+                logger.info(f"Surveillance ponctuelle (Widget) active jusqu'à {q_str} pour {quick_dir}.")
+        except Exception as e:
+            logger.warning(f"Erreur vérification quick_monitoring_until: {e}")
+
+    # B. Rétrocompatibilité return_commute_until (Paris ➔ Meudon)
     return_until = cfg.get("return_commute_until")
     if return_until:
         try:
@@ -93,7 +119,8 @@ def is_within_monitoring_window(
                 ret_dt = return_until
 
             if now.astimezone(timezone.utc) < ret_dt.astimezone(timezone.utc):
-                active_directions.append("TO_MEUDON")
+                if "TO_MEUDON" not in active_directions:
+                    active_directions.append("TO_MEUDON")
                 ret_str = ret_dt.astimezone(TIMEZONE).strftime("%H:%M")
                 logger.info(f"Surveillance retour travail active jusqu'à {ret_str}.")
         except Exception as e:
@@ -210,15 +237,20 @@ def parse_aimed_time(iso_str: Optional[str]) -> str:
         return iso_str[-8:-3] if len(iso_str) >= 8 else iso_str
 
 
-def extract_cancelled_trains(
+def extract_disrupted_trains(
     data: Dict[str, Any],
     active_directions: Optional[List[str]] = None,
+    include_delays: bool = True,
+    min_delay_minutes: int = MIN_DELAY_MINUTES,
 ) -> List[Dict[str, Any]]:
     """
-    Parcourt la réponse JSON SIRI Lite et extrait les trains annulés
+    Parcourt la réponse JSON SIRI Lite et extrait les anomalies de circulation :
+    1. Trains annulés (status = "ANNULÉ", status_code = "CANCELLED")
+    2. Trains retardés si include_delays=True et delay >= min_delay_minutes
+       (status = "RETARDÉ (+X min)", status_code = "DELAYED")
     correspondant aux directions actives ("TO_PARIS" et/ou "TO_MEUDON").
     """
-    cancelled_trains = []
+    disrupted_trains = []
     directions_to_check = active_directions if active_directions is not None else ["TO_PARIS", "TO_MEUDON"]
 
     try:
@@ -235,7 +267,7 @@ def extract_cancelled_trains(
             journey = visit.get("MonitoredVehicleJourney", {})
             call = journey.get("MonitoredCall", {})
 
-            # Vérification destination & direction
+            # Destination & Direction
             destination_names = [
                 d.get("value", "") for d in journey.get("DestinationName", [])
             ]
@@ -248,47 +280,73 @@ def extract_cancelled_trains(
             if train_dir not in directions_to_check:
                 continue
 
-            # Vérification de l'annulation
-            if is_train_cancelled(call, journey):
-                journey_ref = (
-                    journey.get("VehicleJourneyRef", {}).get("value")
-                    or journey.get("FramedVehicleJourneyRef", {}).get("DatedVehicleJourneyRef")
-                    or visit.get("ItemIdentifier", "")
-                )
+            aimed_dep_iso = call.get("AimedDepartureTime") or call.get("AimedArrivalTime")
+            expected_dep_iso = call.get("ExpectedDepartureTime") or call.get("ExpectedArrivalTime")
+            dep_status_raw = call.get("DepartureStatus", "")
+            cancelled = is_train_cancelled(call, journey)
 
-                # Code mission (ex. ROPO, POMA, etc.)
-                notes = [n.get("value", "") for n in journey.get("JourneyNote", [])]
-                mission_code = notes[0] if notes else ""
-                if not mission_code and journey_ref:
-                    mission_code = str(journey_ref).split(":")[-1]
+            status, status_label, delay_min = compute_delay_and_status(
+                aimed_dep_iso, expected_dep_iso, cancelled, dep_status_raw
+            )
 
-                aimed_dep_iso = call.get("AimedDepartureTime") or call.get("AimedArrivalTime")
-                dep_time_display = parse_aimed_time(aimed_dep_iso)
+            is_delayed = include_delays and (status == "DELAYED" or delay_min >= min_delay_minutes)
+            if not cancelled and not is_delayed:
+                continue
 
-                # Date du jour pour déduplication unique (ex. 2026-09-24_TO_PARIS_ROPO_08:12)
-                today_str = datetime.now(TIMEZONE).strftime("%Y-%m-%d")
-                train_id = f"{today_str}_{train_dir}_{journey_ref or mission_code}_{dep_time_display}"
+            journey_ref = (
+                journey.get("VehicleJourneyRef", {}).get("value")
+                or journey.get("FramedVehicleJourneyRef", {}).get("DatedVehicleJourneyRef")
+                or visit.get("ItemIdentifier", "")
+            )
 
-                dir_label = "Meudon ➔ Paris-Montparnasse" if is_to_paris else "Paris-Montparnasse ➔ Meudon"
-                stop_display = "Meudon" if is_to_paris else "Paris-Montparnasse"
+            # Code mission (ex. ROPO, POMA, etc.)
+            notes = [n.get("value", "") for n in journey.get("JourneyNote", [])]
+            mission_code = notes[0] if notes else ""
+            if not mission_code and journey_ref:
+                mission_code = str(journey_ref).split(":")[-1]
 
-                cancelled_trains.append({
-                    "id": train_id,
-                    "journey_ref": journey_ref,
-                    "mission_code": mission_code,
-                    "departure_time": dep_time_display,
-                    "aimed_time_iso": aimed_dep_iso,
-                    "destination": destination_str or ("Paris-Montparnasse" if is_to_paris else "Meudon"),
-                    "direction_code": train_dir,
-                    "direction_label": dir_label,
-                    "stop_name": stop_display,
-                    "status": "ANNULÉ",
-                })
+            dep_time_display = parse_aimed_time(aimed_dep_iso)
+            expected_time_display = parse_aimed_time(expected_dep_iso) if expected_dep_iso else dep_time_display
+
+            status_code = "CANCELLED" if cancelled else "DELAYED"
+            status_text = "ANNULÉ" if cancelled else f"RETARDÉ ({status_label})"
+
+            today_str = datetime.now(TIMEZONE).strftime("%Y-%m-%d")
+            # Identifiant unique de déduplication : inclut status_code
+            train_id = f"{today_str}_{train_dir}_{journey_ref or mission_code}_{dep_time_display}_{status_code}"
+
+            dir_label = "Meudon ➔ Paris-Montparnasse" if is_to_paris else "Paris-Montparnasse ➔ Meudon"
+            stop_display = "Meudon" if is_to_paris else "Paris-Montparnasse"
+
+            disrupted_trains.append({
+                "id": train_id,
+                "journey_ref": journey_ref,
+                "mission_code": mission_code,
+                "departure_time": dep_time_display,
+                "expected_time": expected_time_display,
+                "aimed_time_iso": aimed_dep_iso,
+                "destination": destination_str or ("Paris-Montparnasse" if is_to_paris else "Meudon"),
+                "direction_code": train_dir,
+                "direction_label": dir_label,
+                "stop_name": stop_display,
+                "status": status_text,
+                "status_code": status_code,
+                "delay_minutes": delay_min,
+                "is_cancelled": cancelled,
+            })
 
     except Exception as e:
-        logger.error(f"Erreur lors du parsing des données SIRI Lite: {e}", exc_info=True)
+        logger.error(f"Erreur lors du parsing des perturbations: {e}", exc_info=True)
 
-    return cancelled_trains
+    return disrupted_trains
+
+
+def extract_cancelled_trains(
+    data: Dict[str, Any],
+    active_directions: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    """Rétrocompatibilité : extrait uniquement les trains annulés."""
+    return extract_disrupted_trains(data, active_directions=active_directions, include_delays=False)
 
 
 def compute_delay_and_status(

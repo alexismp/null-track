@@ -59,6 +59,11 @@ FORCE_CHECK = os.getenv("FORCE_CHECK", "false").lower() in ("true", "1", "yes")
 # Fréquence par défaut : 3 minutes
 DEFAULT_FREQUENCY_MINUTES = int(os.getenv("DEFAULT_FREQUENCY_MINUTES", "3"))
 
+# --- Détection des retards & Surveillance ponctuelle (Widget) ---
+NOTIFY_DELAYS = os.getenv("NOTIFY_DELAYS", "true").lower() in ("true", "1", "yes")
+MIN_DELAY_MINUTES = int(os.getenv("MIN_DELAY_MINUTES", "5"))
+DEFAULT_QUICK_DURATION_MINUTES = int(os.getenv("DEFAULT_QUICK_DURATION_MINUTES", "60"))
+
 # --- Firebase & Firestore Configuration ---
 FCM_TOPIC = os.getenv("FCM_TOPIC", "trains_meudon_montparnasse")
 FIRESTORE_COLLECTION = os.getenv("FIRESTORE_COLLECTION", "notified_trains")

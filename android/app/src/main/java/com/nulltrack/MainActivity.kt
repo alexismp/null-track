@@ -42,16 +42,22 @@ class MainActivity : ComponentActivity() {
     private var isSubscribedToTopic by mutableStateOf(false)
     private var shouldOpenDeparturesOnLaunch by mutableStateOf(false)
 
-    // Demande de permission POST_NOTIFICATIONS pour Android 13+ (API 33+)
-    private val requestNotificationPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted: Boolean ->
-        if (isGranted) {
-            Log.d(TAG, "Permission notifications accordée")
-        } else {
+    // Demande des permissions Notifications & Localisation
+    private val requestPermissionsLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val notifGranted = permissions[Manifest.permission.POST_NOTIFICATIONS] ?: true
+        val fineGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: false
+        val coarseGranted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] ?: false
+
+        if (fineGranted || coarseGranted) {
+            Log.d(TAG, "Permission localisation accordée pour détection du sens de trajet")
+            com.nulltrack.widget.NullTrackWidgetProvider.updateAllWidgets(applicationContext)
+        }
+        if (!notifGranted) {
             Toast.makeText(
                 this,
-                "Veuillez autoriser les notifications pour être alerté des annulations",
+                "Veuillez autoriser les notifications pour recevoir les alertes",
                 Toast.LENGTH_LONG
             ).show()
         }
@@ -67,7 +73,7 @@ class MainActivity : ComponentActivity() {
             shouldOpenDeparturesOnLaunch = true
         }
 
-        checkNotificationPermission()
+        checkAppPermissions()
         subscribeToFCMTopic()
 
         setContent {
@@ -89,19 +95,20 @@ class MainActivity : ComponentActivity() {
                     onClearHistoryClick = { repository.clearAlerts() },
                     onSettingsClick = { showSettingsSheet = true },
                     onViewDeparturesClick = { showDeparturesSheet = true },
-                    onTriggerReturnCommute = { hours ->
-                        scheduleRepository.triggerReturnCommute(hours)
+                    onTriggerQuickMonitoring = { duration, direction ->
+                        scheduleRepository.triggerQuickMonitoring(duration, direction)
+                        val dirLabel = if (direction == "TO_PARIS") "Meudon ➔ Paris" else "Paris ➔ Meudon"
                         Toast.makeText(
                             this@MainActivity,
-                            "Surveillance retour activée pour ${hours}h",
+                            "Surveillance activée pour ${duration} min ($dirLabel)",
                             Toast.LENGTH_SHORT
                         ).show()
                     },
-                    onCancelReturnCommute = {
-                        scheduleRepository.cancelReturnCommute()
+                    onCancelQuickMonitoring = {
+                        scheduleRepository.cancelQuickMonitoring()
                         Toast.makeText(
                             this@MainActivity,
-                            "Surveillance retour désactivée",
+                            "Surveillance désactivée",
                             Toast.LENGTH_SHORT
                         ).show()
                     }
@@ -150,15 +157,35 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun checkNotificationPermission() {
+    override fun onResume() {
+        super.onResume()
+        com.nulltrack.widget.NullTrackWidgetProvider.updateAllWidgets(applicationContext)
+    }
+
+    private fun checkAppPermissions() {
+        val permissionsToRequest = mutableListOf<String>()
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(
                     this,
                     Manifest.permission.POST_NOTIFICATIONS
                 ) != PackageManager.PERMISSION_GRANTED
             ) {
-                requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
             }
+        }
+
+        if (ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
+            permissionsToRequest.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+
+        if (permissionsToRequest.isNotEmpty()) {
+            requestPermissionsLauncher.launch(permissionsToRequest.toTypedArray())
         }
     }
 

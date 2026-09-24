@@ -24,8 +24,15 @@ data class ScheduleConfig(
     val frequencyMinutes: Int = 3,
     // Mise en pause temporaire (Snooze)
     val pausedUntil: String? = null, // Format ISO UTC "yyyy-MM-dd'T'HH:mm:ss'Z'"
-    // Déclencheur retour ponctuel (1h ou 2h en quittant le travail)
-    val returnCommuteUntil: String? = null // Format ISO UTC
+    // Déclencheur ponctuel retour travail (rétrocompatibilité)
+    val returnCommuteUntil: String? = null, // Format ISO UTC
+    // Surveillance ponctuelle par Widget / Géolocalisation (durée paramétrable, défaut: 60 min)
+    val quickMonitoringUntil: String? = null,
+    val quickMonitoringDirection: String? = null, // "TO_PARIS", "TO_MEUDON" ou "AUTO"
+    val quickMonitoringDurationMinutes: Int = 60,
+    // Notification des retards en plus des annulations
+    val notifyDelays: Boolean = true,
+    val minDelayMinutes: Int = 5
 ) {
     // Rétrocompatibilité
     val startHour: Int get() = morningStartHour
@@ -48,19 +55,42 @@ data class ScheduleConfig(
         return parisFormat.format(pauseDate)
     }
 
-    fun isReturnCommuteActive(): Boolean {
-        if (returnCommuteUntil.isNullOrBlank()) return false
-        val retDate = parseIsoDate(returnCommuteUntil) ?: return false
+    /**
+     * Indique si une surveillance ponctuelle (Widget ou Déclencheur retour) est actuellement en cours.
+     */
+    fun isQuickMonitoringActive(): Boolean {
+        val target = quickMonitoringUntil ?: returnCommuteUntil
+        if (target.isNullOrBlank()) return false
+        val retDate = parseIsoDate(target) ?: return false
         return Date().before(retDate)
     }
 
-    fun getReturnCommuteRemainingText(): String? {
-        if (!isReturnCommuteActive() || returnCommuteUntil == null) return null
-        val retDate = parseIsoDate(returnCommuteUntil) ?: return null
+    fun isReturnCommuteActive(): Boolean = isQuickMonitoringActive()
+
+    /**
+     * Retourne l'heure d'expiration de la surveillance ponctuelle (ex: 18:45).
+     */
+    fun getQuickMonitoringRemainingText(): String? {
+        val target = quickMonitoringUntil ?: returnCommuteUntil
+        if (!isQuickMonitoringActive() || target == null) return null
+        val retDate = parseIsoDate(target) ?: return null
         val parisFormat = SimpleDateFormat("HH:mm", Locale.FRANCE).apply {
             timeZone = TimeZone.getTimeZone("Europe/Paris")
         }
         return parisFormat.format(retDate)
+    }
+
+    fun getReturnCommuteRemainingText(): String? = getQuickMonitoringRemainingText()
+
+    /**
+     * Libellé lisible de la direction actuellement surveillée en mode ponctuel.
+     */
+    fun getQuickMonitoringDirectionText(): String {
+        return when (quickMonitoringDirection) {
+            "TO_PARIS" -> "Meudon ➔ Paris"
+            "TO_MEUDON" -> "Paris ➔ Meudon"
+            else -> if (returnCommuteUntil != null) "Paris ➔ Meudon" else "Direction auto (Position)"
+        }
     }
 
     fun formatMorningTimeRange(): String {
@@ -105,7 +135,12 @@ data class ScheduleConfig(
             "active_days" to activeDays,
             "frequency_minutes" to frequencyMinutes,
             "paused_until" to pausedUntil,
-            "return_commute_until" to returnCommuteUntil
+            "return_commute_until" to returnCommuteUntil,
+            "quick_monitoring_until" to quickMonitoringUntil,
+            "quick_monitoring_direction" to quickMonitoringDirection,
+            "quick_monitoring_duration_minutes" to quickMonitoringDurationMinutes,
+            "notify_delays" to notifyDelays,
+            "min_delay_minutes" to minDelayMinutes
         )
     }
 
@@ -136,6 +171,11 @@ data class ScheduleConfig(
 
             val pausedUntil = map["paused_until"] as? String
             val returnCommuteUntil = map["return_commute_until"] as? String
+            val quickMonitoringUntil = map["quick_monitoring_until"] as? String
+            val quickMonitoringDirection = map["quick_monitoring_direction"] as? String
+            val quickDuration = (map["quick_monitoring_duration_minutes"] as? Number)?.toInt() ?: 60
+            val notifyDelays = (map["notify_delays"] as? Boolean) ?: true
+            val minDelayMinutes = (map["min_delay_minutes"] as? Number)?.toInt() ?: 5
 
             return ScheduleConfig(
                 enabled = enabled,
@@ -152,7 +192,12 @@ data class ScheduleConfig(
                 activeDays = activeDays,
                 frequencyMinutes = frequencyMinutes,
                 pausedUntil = pausedUntil,
-                returnCommuteUntil = returnCommuteUntil
+                returnCommuteUntil = returnCommuteUntil,
+                quickMonitoringUntil = quickMonitoringUntil,
+                quickMonitoringDirection = quickMonitoringDirection,
+                quickMonitoringDurationMinutes = quickDuration,
+                notifyDelays = notifyDelays,
+                minDelayMinutes = minDelayMinutes
             )
         }
 

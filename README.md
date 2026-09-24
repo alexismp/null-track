@@ -1,10 +1,11 @@
 # 🚆 Null-Track — Alerte d'annulation Transilien Ligne N
 
-**Null-Track** est un système d'alerte automatisé conçu pour surveiller les trains de la **Ligne N Transilien** dans les deux sens de circulation :
-- 🌅 **Sens Aller (Matin)** : depuis votre gare de départ (**Meudon**) vers **Paris-Montparnasse** (par défaut 07h00 - 09h30).
-- 🌆 **Sens Retour (Soir)** : depuis **Paris-Montparnasse** vers votre gare (**Meudon**), programmable (ex: 17h00 - 19h30) ou **déclenchable à la demande en 1 clic** (fenêtre de 1h ou 2h lorsque vous quittez le travail).
-
-Dès qu'une suppression ou annulation est enregistrée par la SNCF / Île-de-France Mobilités pendant la plage active ou la fenêtre retour, une notification push haute priorité (avec sonnerie et vibration) est envoyée instantanément sur votre smartphone **Android**. Un clic sur la notification ouvre le tableau de bord de tous les départs en temps réel avec badges de ponctualité.
+**Null-Track** est un système d'alerte automatisé conçu pour surveiller les trains de la **Ligne N Transilien** dans les deux sens de circulation avec **détection automatique de la localisation** et **widget pour écran d'accueil Android** :
+- 📱 **Widget Android pour écran d'accueil** : permet d'activer la surveillance en 1 clic pour une durée paramétrable (1 heure par défaut).
+- 📍 **Détection intelligente du lieu** :
+  - **Si l'utilisateur est à Paris** : surveillance ciblée sur les trajets **Paris ➔ Banlieue** (retours vers Meudon).
+  - **Si l'utilisateur est proche de sa gare de départ (Meudon)** : surveillance ciblée sur le sens **Banlieue ➔ Paris**.
+- ⏱️ **Annulations et Retards** : notifications push instantanées envoyées aussi bien pour les **trains supprimés** que pour les **retards significatifs** (≥ 5 min).
 
 ---
 
@@ -12,14 +13,15 @@ Dès qu'une suppression ou annulation est enregistrée par la SNCF / Île-de-Fra
 
 ```mermaid
 graph TD
+    WIDGET["Widget Android (1 clic)"] -->|Active 1h (Sens auto selon GPS)| FS[("Cloud Firestore")]
     CS["Cloud Scheduler (Toutes les 3 min)"] -->|Déclenche| CF["Backend Python (Cloud Run functions Gen2)"]
-    CF -->|Vérifie les critères| FS[("Cloud Firestore (Plages matin/soir, jours, retour actif)") ]
+    CF -->|Vérifie les critères| FS
     CF -->|1. Interrogation SIRI Lite (si fenêtre active)| PRIM["API IDFM PRIM (Plateforme Régionale)"]
     PRIM -->|2. Statuts temps réel (Aller & Retour)| CF
-    CF -->|3. Anti-spam / Déduplication| FS
+    CF -->|3. Anti-spam / Déduplication (Annulations & Retards)| FS
     CF -->|4. Push Notification| FCM["Firebase Cloud Messaging (Topic: trains_meudon_montparnasse)"]
-    FCM -->|Alerte instantanée (sens précisé)| ANDROID["Application Android (Jetpack Compose)"]
-    ANDROID -->|Déclencheur retour 1h/2h & Réglages| FS
+    FCM -->|Alerte instantanée (Annulé ou Retardé)| ANDROID["Application Android (Jetpack Compose)"]
+    ANDROID -->|Synchro Widget & Réglages| FS
 ```
 
 ---

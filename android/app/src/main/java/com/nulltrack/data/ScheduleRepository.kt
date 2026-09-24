@@ -1,6 +1,7 @@
 package com.nulltrack.data
 
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
 import android.util.Log
 import com.google.firebase.firestore.FirebaseFirestore
@@ -14,10 +15,10 @@ import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
 
-class ScheduleRepository private constructor(context: Context) {
+class ScheduleRepository private constructor(private val appContext: Context) {
 
     private val prefs: SharedPreferences =
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val _schedule = MutableStateFlow(loadLocalConfig())
     val schedule: StateFlow<ScheduleConfig> = _schedule.asStateFlow()
@@ -45,10 +46,10 @@ class ScheduleRepository private constructor(context: Context) {
                         val remoteConfig = ScheduleConfig.fromMap(data)
                         _schedule.value = remoteConfig
                         saveLocalConfig(remoteConfig)
+                        notifyWidgetUpdate()
                         Log.d(TAG, "Configuration synchronisée depuis Firestore: $remoteConfig")
                     }
                 } else if (snapshot != null && !snapshot.exists()) {
-                    // Document n'existe pas encore, on le crée avec les valeurs actuelles
                     val current = _schedule.value
                     docRef.set(current.toMap(), SetOptions.merge())
                 }
@@ -61,6 +62,7 @@ class ScheduleRepository private constructor(context: Context) {
     fun saveConfig(newConfig: ScheduleConfig) {
         _schedule.value = newConfig
         saveLocalConfig(newConfig)
+        notifyWidgetUpdate()
 
         try {
             val firestore = FirebaseFirestore.getInstance()
@@ -114,29 +116,72 @@ class ScheduleRepository private constructor(context: Context) {
     }
 
     /**
-     * Déclenche une fenêtre de surveillance pour le retour du travail (Paris ➔ Meudon).
-     * @param hours Nombre d'heures de surveillance (ex: 1 ou 2 heures).
+     * Déclenche une fenêtre de surveillance ponctuelle (Widget ou In-App).
+     * @param durationMinutes Durée en minutes (défaut 60 min, paramétrable).
+     * @param direction "TO_PARIS", "TO_MEUDON" ou "AUTO".
      */
-    fun triggerReturnCommute(hours: Int = 1) {
+    fun triggerQuickMonitoring(durationMinutes: Int = 60, direction: String = "AUTO") {
         val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
-            add(Calendar.HOUR_OF_DAY, hours)
+            add(Calendar.MINUTE, durationMinutes)
         }
         val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")
         }
-        val returnUntilIso = isoFormat.format(cal.time)
+        val untilIso = isoFormat.format(cal.time)
         val current = _schedule.value
-        saveConfig(current.copy(returnCommuteUntil = returnUntilIso, enabled = true))
-        Log.i(TAG, "Surveillance retour travail activée jusqu'à $returnUntilIso (${hours}h)")
+        saveConfig(
+            current.copy(
+                quickMonitoringUntil = untilIso,
+                quickMonitoringDirection = direction,
+                quickMonitoringDurationMinutes = durationMinutes,
+                returnCommuteUntil = untilIso,
+                enabled = true
+            )
+        )
+        Log.i(TAG, "Surveillance ponctuelle activée ($direction) pour ${durationMinutes}m jusqu'à $untilIso")
     }
 
     /**
-     * Annule la surveillance retour ponctuelle.
+     * Annule la surveillance ponctuelle.
      */
-    fun cancelReturnCommute() {
+    fun cancelQuickMonitoring() {
         val current = _schedule.value
-        saveConfig(current.copy(returnCommuteUntil = null))
-        Log.i(TAG, "Surveillance retour travail annulée.")
+        saveConfig(
+            current.copy(
+                quickMonitoringUntil = null,
+                returnCommuteUntil = null
+            )
+        )
+        Log.i(TAG, "Surveillance ponctuelle annulée.")
+    }
+
+    fun triggerReturnCommute(hours: Int = 1) {
+        triggerQuickMonitoring(durationMinutes = hours * 60, direction = "TO_MEUDON")
+    }
+
+    fun cancelReturnCommute() {
+        cancelQuickMonitoring()
+    }
+
+    fun updateQuickDuration(durationMinutes: Int) {
+        val current = _schedule.value
+        saveConfig(current.copy(quickMonitoringDurationMinutes = durationMinutes))
+    }
+
+    fun toggleNotifyDelays(enabled: Boolean) {
+        val current = _schedule.value
+        saveConfig(current.copy(notifyDelays = enabled))
+    }
+
+    private fun notifyWidgetUpdate() {
+        try {
+            val intent = Intent(ACTION_WIDGET_REFRESH).apply {
+                setPackage(appContext.packageName)
+            }
+            appContext.sendBroadcast(intent)
+        } catch (e: Exception) {
+            Log.w(TAG, "Erreur broadcast widget: ${e.message}")
+        }
     }
 
     private fun loadLocalConfig(): ScheduleConfig {
@@ -157,6 +202,12 @@ class ScheduleRepository private constructor(context: Context) {
         val freq = prefs.getInt(KEY_FREQ, 3)
         val pausedUntil = prefs.getString(KEY_PAUSED_UNTIL, null)
         val returnCommuteUntil = prefs.getString(KEY_RETURN_COMMUTE_UNTIL, null)
+        val quickMonitoringUntil = prefs.getString(KEY_QUICK_MONITORING_UNTIL, null)
+        val quickMonitoringDirection = prefs.getString(KEY_QUICK_MONITORING_DIRECTION, null)
+        val quickDuration = prefs.getInt(KEY_QUICK_MONITORING_DURATION, 60)
+        val notifyDelays = prefs.getBoolean(KEY_NOTIFY_DELAYS, true)
+        val minDelay = prefs.getInt(KEY_MIN_DELAY_MINUTES, 5)
+
         val daysString = prefs.getString(KEY_ACTIVE_DAYS, "0,1,2,3,4") ?: "0,1,2,3,4"
 
         val days = daysString.split(",")
@@ -178,7 +229,12 @@ class ScheduleRepository private constructor(context: Context) {
             activeDays = days,
             frequencyMinutes = freq,
             pausedUntil = pausedUntil,
-            returnCommuteUntil = returnCommuteUntil
+            returnCommuteUntil = returnCommuteUntil,
+            quickMonitoringUntil = quickMonitoringUntil,
+            quickMonitoringDirection = quickMonitoringDirection,
+            quickMonitoringDurationMinutes = quickDuration,
+            notifyDelays = notifyDelays,
+            minDelayMinutes = minDelay
         )
     }
 
@@ -190,7 +246,6 @@ class ScheduleRepository private constructor(context: Context) {
             putInt(KEY_MORNING_START_MINUTE, config.morningStartMinute)
             putInt(KEY_MORNING_END_HOUR, config.morningEndHour)
             putInt(KEY_MORNING_END_MINUTE, config.morningEndMinute)
-            // Backwards compatibility
             putInt(KEY_START_HOUR, config.morningStartHour)
             putInt(KEY_START_MINUTE, config.morningStartMinute)
             putInt(KEY_END_HOUR, config.morningEndHour)
@@ -205,6 +260,12 @@ class ScheduleRepository private constructor(context: Context) {
             putInt(KEY_FREQ, config.frequencyMinutes)
             putString(KEY_PAUSED_UNTIL, config.pausedUntil)
             putString(KEY_RETURN_COMMUTE_UNTIL, config.returnCommuteUntil)
+            putString(KEY_QUICK_MONITORING_UNTIL, config.quickMonitoringUntil)
+            putString(KEY_QUICK_MONITORING_DIRECTION, config.quickMonitoringDirection)
+            putInt(KEY_QUICK_MONITORING_DURATION, config.quickMonitoringDurationMinutes)
+            putBoolean(KEY_NOTIFY_DELAYS, config.notifyDelays)
+            putInt(KEY_MIN_DELAY_MINUTES, config.minDelayMinutes)
+
             putString(KEY_ACTIVE_DAYS, config.activeDays.joinToString(","))
             apply()
         }
@@ -215,6 +276,7 @@ class ScheduleRepository private constructor(context: Context) {
         private const val PREFS_NAME = "null_track_schedule_prefs"
         private const val SETTINGS_COLLECTION = "settings"
         private const val SCHEDULE_DOC = "monitoring_schedule"
+        const val ACTION_WIDGET_REFRESH = "com.nulltrack.widget.ACTION_REFRESH"
 
         private const val KEY_ENABLED = "enabled"
         private const val KEY_START_HOUR = "start_hour"
@@ -237,6 +299,11 @@ class ScheduleRepository private constructor(context: Context) {
         private const val KEY_FREQ = "frequency"
         private const val KEY_PAUSED_UNTIL = "paused_until"
         private const val KEY_RETURN_COMMUTE_UNTIL = "return_commute_until"
+        private const val KEY_QUICK_MONITORING_UNTIL = "quick_monitoring_until"
+        private const val KEY_QUICK_MONITORING_DIRECTION = "quick_monitoring_direction"
+        private const val KEY_QUICK_MONITORING_DURATION = "quick_monitoring_duration"
+        private const val KEY_NOTIFY_DELAYS = "notify_delays"
+        private const val KEY_MIN_DELAY_MINUTES = "min_delay_minutes"
         private const val KEY_ACTIVE_DAYS = "active_days"
 
         @Volatile

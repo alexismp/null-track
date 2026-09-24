@@ -42,6 +42,12 @@ _in_memory_schedule = {
     "evening_end_minute": EVENING_END_MINUTE,
     # Déclencheur ponctuel retour travail (ex: 1h ou 2h)
     "return_commute_until": None,
+    # Surveillance ponctuelle par Widget / Géolocalisation (durée paramétrable ex: 60 min)
+    "quick_monitoring_until": None,
+    "quick_monitoring_direction": "AUTO", # "TO_PARIS", "TO_MEUDON" ou "AUTO"
+    "quick_monitoring_duration_minutes": 60,
+    "notify_delays": True,
+    "min_delay_minutes": 5,
     "last_check_timestamp": 0,
 }
 
@@ -235,6 +241,37 @@ def cancel_return_commute() -> Dict[str, Any]:
     """Annule la surveillance ponctuelle du retour."""
     logger.info("Surveillance retour désactivée.")
     return update_monitoring_schedule({
+        "return_commute_until": None,
+    })
+
+
+def trigger_quick_monitoring(
+    duration_minutes: int = 60,
+    direction: str = "AUTO",
+    notify_delays: bool = True,
+) -> Dict[str, Any]:
+    """
+    Active la surveillance ponctuelle (via widget ou app) pour une durée paramétrable (ex: 60 min).
+    La direction est automatiquement déterminée selon la position ('TO_PARIS', 'TO_MEUDON' ou 'AUTO').
+    """
+    until_dt = datetime.now(timezone.utc) + timedelta(minutes=duration_minutes)
+    logger.info(
+        f"Surveillance ponctuelle activée pour {duration_minutes} min (direction: {direction}) jusqu'à {until_dt.isoformat()}."
+    )
+    return update_monitoring_schedule({
+        "quick_monitoring_until": until_dt.isoformat(),
+        "quick_monitoring_direction": direction,
+        "quick_monitoring_duration_minutes": duration_minutes,
+        "notify_delays": notify_delays,
+        "enabled": True,
+    })
+
+
+def cancel_quick_monitoring() -> Dict[str, Any]:
+    """Annule la surveillance ponctuelle (Widget)."""
+    logger.info("Surveillance ponctuelle annulée.")
+    return update_monitoring_schedule({
+        "quick_monitoring_until": None,
         "return_commute_until": None,
     })
 

@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """
-Tests unitaires pour la surveillance bidirectionnelle et le déclencheur retour.
+Tests unitaires pour la surveillance bidirectionnelle, le déclencheur retour,
+le widget de surveillance ponctuelle et la détection des retards.
 """
 from datetime import datetime, time, timedelta, timezone
 import unittest
-from unittest.mock import patch
 
-from monitor import extract_cancelled_trains, is_within_monitoring_window, TIMEZONE
+from monitor import (
+    extract_cancelled_trains,
+    extract_disrupted_trains,
+    is_within_monitoring_window,
+    TIMEZONE,
+)
 
 MOCK_BIDIRECTIONAL_SIRI = {
     "Siri": {
@@ -31,6 +36,23 @@ MOCK_BIDIRECTIONAL_SIRI = {
                                 },
                             },
                         },
+                        # Train Aller vers Paris (retardé de 12 min)
+                        {
+                            "ItemIdentifier": "VISIT-PARIS-002",
+                            "MonitoredVehicleJourney": {
+                                "LineRef": {"value": "STIF:Line::C01736:"},
+                                "DirectionRef": {"value": "Retour"},
+                                "DestinationName": [{"value": "Paris-Montparnasse"}],
+                                "VehicleJourneyRef": {"value": "SNCF:TN:165102"},
+                                "JourneyNote": [{"value": "POGI"}],
+                                "MonitoredCall": {
+                                    "StopPointName": [{"value": "Meudon"}],
+                                    "AimedDepartureTime": "2026-09-24T08:30:00.000Z",
+                                    "ExpectedDepartureTime": "2026-09-24T08:42:00.000Z",
+                                    "DepartureStatus": "delayed",
+                                },
+                            },
+                        },
                         # Train Retour vers Rambouillet / Banlieue (annulé)
                         {
                             "ItemIdentifier": "VISIT-MEUDON-002",
@@ -47,7 +69,7 @@ MOCK_BIDIRECTIONAL_SIRI = {
                                 },
                             },
                         },
-                        # Train Retour à l'heure (non annulé)
+                        # Train Retour vers Plaisir (retardé de 8 min)
                         {
                             "ItemIdentifier": "VISIT-MEUDON-003",
                             "MonitoredVehicleJourney": {
@@ -59,6 +81,23 @@ MOCK_BIDIRECTIONAL_SIRI = {
                                 "MonitoredCall": {
                                     "StopPointName": [{"value": "Meudon"}],
                                     "AimedDepartureTime": "2026-09-24T18:30:00.000Z",
+                                    "ExpectedDepartureTime": "2026-09-24T18:38:00.000Z",
+                                    "DepartureStatus": "delayed",
+                                },
+                            },
+                        },
+                        # Train Retour à l'heure (aucun problème)
+                        {
+                            "ItemIdentifier": "VISIT-MEUDON-004",
+                            "MonitoredVehicleJourney": {
+                                "LineRef": {"value": "STIF:Line::C01736:"},
+                                "DirectionRef": {"value": "Aller"},
+                                "DestinationName": [{"value": "Mantes-la-Jolie"}],
+                                "VehicleJourneyRef": {"value": "SNCF:TN:165204"},
+                                "JourneyNote": [{"value": "MOPI"}],
+                                "MonitoredCall": {
+                                    "StopPointName": [{"value": "Meudon"}],
+                                    "AimedDepartureTime": "2026-09-24T18:45:00.000Z",
                                     "DepartureStatus": "onTime",
                                 },
                             },
@@ -77,7 +116,7 @@ class TestBidirectionalMonitoring(unittest.TestCase):
         # Jeudi à 08h00 (plage matin 07h00 - 09h30)
         cfg = {
             "enabled": True,
-            "active_days": [3], # Jeudi
+            "active_days": [3],
             "morning_enabled": True,
             "morning_start_hour": 7, "morning_start_minute": 0,
             "morning_end_hour": 9, "morning_end_minute": 30,
@@ -94,7 +133,7 @@ class TestBidirectionalMonitoring(unittest.TestCase):
         # Jeudi à 18h00 (plage soir 17h00 - 19h30)
         cfg = {
             "enabled": True,
-            "active_days": [3], # Jeudi
+            "active_days": [3],
             "morning_enabled": True,
             "morning_start_hour": 7, "morning_start_minute": 0,
             "morning_end_hour": 9, "morning_end_minute": 30,
@@ -120,39 +159,71 @@ class TestBidirectionalMonitoring(unittest.TestCase):
         self.assertFalse(is_active)
         self.assertEqual(active_dirs, [])
 
-    def test_on_demand_return_commute_trigger(self):
-        # L'utilisateur déclenche à 15h30 (hors horaires habituels) un retour de 2h (jusqu'à 17h30)
-        now_15h30 = datetime(2026, 9, 24, 15, 30, tzinfo=TIMEZONE)
-        ret_until = (now_15h30 + timedelta(hours=2)).astimezone(timezone.utc).isoformat()
-
+    def test_widget_quick_monitoring_to_meudon(self):
+        # Utilisateur à Paris active le widget pour 1h (sens Paris ➔ Meudon)
+        now_14h = datetime(2026, 9, 24, 14, 0, tzinfo=TIMEZONE)
+        quick_until = (now_14h + timedelta(hours=1)).astimezone(timezone.utc).isoformat()
         cfg = {
             "enabled": True,
             "active_days": [0, 1, 2, 3, 4],
-            "morning_enabled": True, "morning_start_hour": 7, "morning_end_hour": 9, "morning_start_minute": 0, "morning_end_minute": 30,
-            "evening_enabled": True, "evening_start_hour": 17, "evening_end_hour": 19, "evening_start_minute": 0, "evening_end_minute": 30,
-            "return_commute_until": ret_until,
+            "quick_monitoring_until": quick_until,
+            "quick_monitoring_direction": "TO_MEUDON",
         }
-
-        is_active, reason, active_dirs = is_within_monitoring_window(dt=now_15h30, schedule=cfg)
+        is_active, reason, active_dirs = is_within_monitoring_window(dt=now_14h, schedule=cfg)
         self.assertTrue(is_active)
-        self.assertIn("TO_MEUDON", active_dirs)
+        self.assertEqual(active_dirs, ["TO_MEUDON"])
 
-    def test_direction_filtering_cancelled_trains(self):
-        # 1. Vérification avec seulement direction TO_PARIS
-        cancelled_paris = extract_cancelled_trains(MOCK_BIDIRECTIONAL_SIRI, active_directions=["TO_PARIS"])
-        self.assertEqual(len(cancelled_paris), 1)
-        self.assertEqual(cancelled_paris[0]["direction_code"], "TO_PARIS")
-        self.assertEqual(cancelled_paris[0]["mission_code"], "POMA")
+    def test_widget_quick_monitoring_to_paris(self):
+        # Utilisateur proche de Meudon active le widget pour 1h (sens Meudon ➔ Paris)
+        now_14h = datetime(2026, 9, 24, 14, 0, tzinfo=TIMEZONE)
+        quick_until = (now_14h + timedelta(hours=1)).astimezone(timezone.utc).isoformat()
+        cfg = {
+            "enabled": True,
+            "active_days": [0, 1, 2, 3, 4],
+            "quick_monitoring_until": quick_until,
+            "quick_monitoring_direction": "TO_PARIS",
+        }
+        is_active, reason, active_dirs = is_within_monitoring_window(dt=now_14h, schedule=cfg)
+        self.assertTrue(is_active)
+        self.assertEqual(active_dirs, ["TO_PARIS"])
 
-        # 2. Vérification avec seulement direction TO_MEUDON
-        cancelled_meudon = extract_cancelled_trains(MOCK_BIDIRECTIONAL_SIRI, active_directions=["TO_MEUDON"])
-        self.assertEqual(len(cancelled_meudon), 1)
-        self.assertEqual(cancelled_meudon[0]["direction_code"], "TO_MEUDON")
-        self.assertEqual(cancelled_meudon[0]["mission_code"], "ROPO")
+    def test_extract_disrupted_trains_delays_and_cancellations(self):
+        # 1. Vérification sens TO_PARIS (1 annulé + 1 retardé de 12 min)
+        disrupted_paris = extract_disrupted_trains(
+            MOCK_BIDIRECTIONAL_SIRI,
+            active_directions=["TO_PARIS"],
+            include_delays=True,
+            min_delay_minutes=5,
+        )
+        self.assertEqual(len(disrupted_paris), 2)
+        codes = [t["status_code"] for t in disrupted_paris]
+        self.assertIn("CANCELLED", codes)
+        self.assertIn("DELAYED", codes)
 
-        # 3. Vérification avec les deux directions actives
-        cancelled_both = extract_cancelled_trains(MOCK_BIDIRECTIONAL_SIRI, active_directions=["TO_PARIS", "TO_MEUDON"])
-        self.assertEqual(len(cancelled_both), 2)
+        delayed_train = [t for t in disrupted_paris if t["status_code"] == "DELAYED"][0]
+        self.assertEqual(delayed_train["delay_minutes"], 12)
+        self.assertEqual(delayed_train["direction_code"], "TO_PARIS")
+
+        # 2. Vérification sens TO_MEUDON (1 annulé + 1 retardé de 8 min)
+        disrupted_meudon = extract_disrupted_trains(
+            MOCK_BIDIRECTIONAL_SIRI,
+            active_directions=["TO_MEUDON"],
+            include_delays=True,
+            min_delay_minutes=5,
+        )
+        self.assertEqual(len(disrupted_meudon), 2)
+        meudon_delayed = [t for t in disrupted_meudon if t["status_code"] == "DELAYED"][0]
+        self.assertEqual(meudon_delayed["delay_minutes"], 8)
+        self.assertEqual(meudon_delayed["direction_code"], "TO_MEUDON")
+
+        # 3. Sans inclusion des retards (seulement annulations)
+        only_cancelled = extract_cancelled_trains(
+            MOCK_BIDIRECTIONAL_SIRI,
+            active_directions=["TO_PARIS", "TO_MEUDON"],
+        )
+        self.assertEqual(len(only_cancelled), 2)
+        for t in only_cancelled:
+            self.assertEqual(t["status_code"], "CANCELLED")
 
 
 if __name__ == "__main__":

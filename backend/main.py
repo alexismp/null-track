@@ -15,12 +15,14 @@ except ImportError:
 
 from fcm_client import send_cancellation_alert
 from firestore_client import (
+    cancel_quick_monitoring,
     cancel_return_commute,
     get_live_departures,
     get_monitoring_schedule,
     is_train_notified,
     mark_train_as_notified,
     save_live_departures,
+    trigger_quick_monitoring,
     trigger_return_commute,
     update_last_check_timestamp,
     update_monitoring_schedule,
@@ -28,6 +30,7 @@ from firestore_client import (
 from monitor import (
     extract_all_departures,
     extract_cancelled_trains,
+    extract_disrupted_trains,
     fetch_stop_monitoring,
     is_within_monitoring_window,
 )
@@ -74,20 +77,28 @@ def run_cancellation_check(force: bool = False) -> Dict[str, Any]:
         save_live_departures(all_deps)
 
         dirs_to_check = active_directions if active_directions else ["TO_PARIS", "TO_MEUDON"]
-        cancelled_trains = extract_cancelled_trains(data, active_directions=dirs_to_check)
+        notify_delays = schedule.get("notify_delays", True)
+        min_delay = int(schedule.get("min_delay_minutes", 5))
+
+        disrupted_trains = extract_disrupted_trains(
+            data,
+            active_directions=dirs_to_check,
+            include_delays=notify_delays,
+            min_delay_minutes=min_delay,
+        )
 
         alerts_sent = 0
         skipped_already_notified = 0
         details = []
 
-        for train in cancelled_trains:
+        for train in disrupted_trains:
             train_id = train["id"]
             if is_train_notified(train_id):
                 skipped_already_notified += 1
                 logger.info(f"Train {train_id} déjà notifié précédemment. Ignoré.")
                 continue
 
-            # Envoi de la notification push FCM
+            # Envoi de la notification push FCM (annulations ou retards)
             success = send_cancellation_alert(train)
             if success:
                 mark_train_as_notified(train)
@@ -97,12 +108,17 @@ def run_cancellation_check(force: bool = False) -> Dict[str, Any]:
                     "departure": train["departure_time"],
                     "mission": train["mission_code"],
                     "direction": train.get("direction_label", ""),
+                    "status": train.get("status", ""),
+                    "status_code": train.get("status_code", "CANCELLED"),
+                    "delay_minutes": train.get("delay_minutes", 0),
                 })
 
         return {
             "status": "success",
             "active_directions": dirs_to_check,
-            "cancelled_detected": len(cancelled_trains),
+            "disrupted_detected": len(disrupted_trains),
+            "cancelled_detected": len([t for t in disrupted_trains if t.get("status_code") == "CANCELLED"]),
+            "delayed_detected": len([t for t in disrupted_trains if t.get("status_code") == "DELAYED"]),
             "total_departures": len(all_deps),
             "alerts_sent": alerts_sent,
             "already_notified": skipped_already_notified,
@@ -135,7 +151,29 @@ def check_trains_http(request: Request):
         updated = update_monitoring_schedule(body)
         return jsonify({"status": "success", "config": updated}), 200
 
-    # 3. Endpoint pour déclencher la surveillance retour (Paris ➔ Meudon)
+    # 3. Endpoint pour surveillance ponctuelle (Widget Android & Géolocalisation)
+    if action in ("trigger_quick", "quick_monitoring") or request.path.endswith("/trigger-quick"):
+        body = request.get_json(silent=True) or {}
+        duration = int(request.args.get("duration", body.get("duration", body.get("duration_minutes", 60))))
+        direction = str(request.args.get("direction", body.get("direction", "AUTO")))
+        notify_delays = request.args.get("notify_delays", str(body.get("notify_delays", True))).lower() in ("true", "1", "yes")
+        updated = trigger_quick_monitoring(duration_minutes=duration, direction=direction, notify_delays=notify_delays)
+        return jsonify({
+            "status": "success",
+            "message": f"Surveillance ponctuelle ({direction}) activée pour {duration} min",
+            "config": updated,
+        }), 200
+
+    # 4. Endpoint pour annuler la surveillance ponctuelle
+    if action in ("cancel_quick", "stop_quick") or request.path.endswith("/cancel-quick"):
+        updated = cancel_quick_monitoring()
+        return jsonify({
+            "status": "success",
+            "message": "Surveillance ponctuelle désactivée",
+            "config": updated,
+        }), 200
+
+    # 5. Endpoint pour déclencher la surveillance retour (Paris ➔ Meudon)
     if action in ("trigger_return", "start_return") or request.path.endswith("/trigger-return"):
         body = request.get_json(silent=True) or {}
         hours = int(request.args.get("hours", body.get("hours", 1)))
@@ -146,7 +184,7 @@ def check_trains_http(request: Request):
             "config": updated,
         }), 200
 
-    # 4. Endpoint pour annuler la surveillance retour
+    # 6. Endpoint pour annuler la surveillance retour
     if action in ("cancel_return", "stop_return") or request.path.endswith("/cancel-return"):
         updated = cancel_return_commute()
         return jsonify({

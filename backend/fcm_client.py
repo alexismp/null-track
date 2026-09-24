@@ -53,13 +53,26 @@ def send_cancellation_alert(train: Dict[str, Any], topic: str = FCM_TOPIC) -> bo
     stop = train.get("stop_name", "Meudon")
     dest = train.get("destination", "Paris-Montparnasse")
     direction_code = train.get("direction_code", "TO_PARIS")
+    status_code = train.get("status_code", "CANCELLED")
+    status_text = train.get("status", "ANNULÉ")
+    delay_minutes = train.get("delay_minutes", 0)
+
+    is_delayed = status_code == "DELAYED"
 
     if direction_code == "TO_MEUDON":
-        title = f"⚠️ Train retour supprimé : {mission} ({departure})"
-        body = f"Le train de {departure} (sens Paris ➔ Meudon, vers {dest}) est supprimé."
+        if is_delayed:
+            title = f"⏱️ Train retour retardé : {mission} ({departure})"
+            body = f"Le train de {departure} (Paris ➔ Meudon, vers {dest}) est {status_text}."
+        else:
+            title = f"⚠️ Train retour supprimé : {mission} ({departure})"
+            body = f"Le train de {departure} (sens Paris ➔ Meudon, vers {dest}) est supprimé."
     else:
-        title = f"⚠️ Train supprimé : {mission} ({departure})"
-        body = f"Le train de {departure} au départ de Meudon vers {dest} est supprimé."
+        if is_delayed:
+            title = f"⏱️ Train retardé : {mission} ({departure})"
+            body = f"Le train de {departure} au départ de Meudon vers {dest} est {status_text}."
+        else:
+            title = f"⚠️ Train supprimé : {mission} ({departure})"
+            body = f"Le train de {departure} au départ de Meudon vers {dest} est supprimé."
 
     message = messaging.Message(
         topic=topic,
@@ -82,7 +95,10 @@ def send_cancellation_alert(train: Dict[str, Any], topic: str = FCM_TOPIC) -> bo
             "departure_time": str(departure),
             "stop_name": str(stop),
             "destination": str(dest),
-            "status": "ANNULÉ",
+            "status": "RETARDÉ" if is_delayed else "ANNULÉ",
+            "status_label": str(status_text),
+            "delay_minutes": str(delay_minutes),
+            "direction_code": str(direction_code),
         },
     )
 

@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -198,7 +199,7 @@ class DeparturesRepository private constructor(private val context: Context) {
             // 2. Token Firebase App Check (attestation Play Integrity si disponible)
             try {
                 val appCheck = com.google.firebase.appcheck.FirebaseAppCheck.getInstance()
-                val tokenResult = kotlinx.coroutines.tasks.await(appCheck.getAppCheckToken(false))
+                val tokenResult = appCheck.getAppCheckToken(false).await()
                 if (tokenResult != null && tokenResult.token.isNotBlank()) {
                     conn.setRequestProperty("X-Firebase-AppCheck", tokenResult.token)
                 }

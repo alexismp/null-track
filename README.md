@@ -135,8 +135,9 @@ Le Cloud Scheduler interroge l'endpoint du service toutes les 3 minutes. Les req
    backend.url=https://votre-service-cloud-run.run.app
    backend.api.key=votre_cle_optionnelle
    ```
-4. Compilez l'application en ligne de commande :
+4. Compilez l'application en ligne de commande (nécessite Java 17 ou 21) :
    ```bash
+   export JAVA_HOME="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"
    ./android/gradlew -p android assembleDebug
    ```
 5. Installez l'APK sur votre smartphone Android connecté via ADB :

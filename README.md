@@ -15,8 +15,9 @@ Il combine un backend serverless sur Google Cloud, une application Android moder
 - 📱 **Widget Android compact (2x1)** :
   - **Bouton d'action 1 clic** : Démarre ou arrête la surveillance à la demande (durée paramétrable, 1h par défaut).
   - **Alerte visuelle instantanée** : Le widget passe automatiquement au **ROUGE** (`🚨 PERTURBATION`) dès qu'une suppression ou un retard significatif (≥ 5 min) est détecté sur les prochains départs.
+  - **Transitions autonomes sans ouvrir l'application** : Utilisation de l'`AlarmManager` système (`setAndAllowWhileIdle`) pour basculer automatiquement l'état du widget à la seconde exacte de fin de surveillance (ou au début d'un créneau programmé), même en mode veille prolongée (*Doze Mode*) et après redémarrage du smartphone (`BOOT_COMPLETED`).
   - **Raccourci direct** : Un tap sur le widget ouvre instantanément l'application pour afficher l'ensemble des détails du trafic.
-  - **Synchronisation continue** : L'état de surveillance et les données de trafic sont toujours synchronisés entre le widget et l'application.
+  - **Synchronisation continue & Filtrage temps réel** : L'état de surveillance et les données de trafic sont toujours synchronisés, avec filtrage automatique des trains passés pour ne pas maintenir d'alertes obsolètes.
 - 📍 **Détection intelligente de la localisation** :
   - À Paris : oriente la surveillance vers **Paris ➔ Meudon** (retour).
   - Proche de Meudon : oriente la surveillance vers **Meudon ➔ Paris** (aller).

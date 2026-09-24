@@ -17,6 +17,7 @@
 package com.nulltrack.data
 
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
@@ -174,6 +175,97 @@ data class ScheduleConfig(
             }
         }
         return null
+    }
+
+    /**
+     * Calcule le prochain horodatage (en millisecondes Epoch) où le statut de surveillance change :
+     * - Fin de la surveillance ponctuelle (Quick monitoring ou return commute)
+     * - Fin de la mise en pause (Snooze)
+     * - Début ou fin d'une plage horaire programmée (matin ou soir)
+     *
+     * Retourne null si aucune transition future n'est programmée.
+     */
+    fun getNextTransitionMillis(nowMillis: Long = System.currentTimeMillis()): Long? {
+        val candidates = mutableListOf<Long>()
+        val tz = TimeZone.getTimeZone("Europe/Paris")
+
+        // 1. Fin de la surveillance ponctuelle (Quick monitoring ou retour)
+        val quickTarget = quickMonitoringUntil ?: returnCommuteUntil
+        if (!quickTarget.isNullOrBlank()) {
+            val dt = parseIsoDate(quickTarget)
+            if (dt != null && dt.time > nowMillis) {
+                candidates.add(dt.time)
+            }
+        }
+
+        // 2. Fin de la mise en pause temporaire (Snooze)
+        if (!pausedUntil.isNullOrBlank()) {
+            val pauseDate = parseIsoDate(pausedUntil)
+            if (pauseDate != null && pauseDate.time > nowMillis) {
+                candidates.add(pauseDate.time)
+            }
+        }
+
+        // 3. Transitions des plages programmées (matin et soir) sur les 7 prochains jours
+        if (enabled) {
+            val baseCal = Calendar.getInstance(tz).apply { timeInMillis = nowMillis }
+            for (dayOffset in 0..7) {
+                val checkCal = (baseCal.clone() as Calendar).apply {
+                    add(Calendar.DAY_OF_YEAR, dayOffset)
+                }
+                // Convention activeDays : 0=Lundi, ..., 6=Dimanche
+                val dayOfWeek = (checkCal.get(Calendar.DAY_OF_WEEK) + 5) % 7
+                if (dayOfWeek in activeDays) {
+                    // Plage Matin
+                    if (morningEnabled) {
+                        val mStart = (checkCal.clone() as Calendar).apply {
+                            set(Calendar.HOUR_OF_DAY, morningStartHour)
+                            set(Calendar.MINUTE, morningStartMinute)
+                            set(Calendar.SECOND, 0)
+                            set(Calendar.MILLISECOND, 0)
+                        }
+                        if (mStart.timeInMillis > nowMillis) {
+                            candidates.add(mStart.timeInMillis)
+                        }
+
+                        val mEnd = (checkCal.clone() as Calendar).apply {
+                            set(Calendar.HOUR_OF_DAY, morningEndHour)
+                            set(Calendar.MINUTE, morningEndMinute)
+                            set(Calendar.SECOND, 0)
+                            set(Calendar.MILLISECOND, 0)
+                        }
+                        if (mEnd.timeInMillis > nowMillis) {
+                            candidates.add(mEnd.timeInMillis)
+                        }
+                    }
+
+                    // Plage Soir
+                    if (eveningEnabled) {
+                        val eStart = (checkCal.clone() as Calendar).apply {
+                            set(Calendar.HOUR_OF_DAY, eveningStartHour)
+                            set(Calendar.MINUTE, eveningStartMinute)
+                            set(Calendar.SECOND, 0)
+                            set(Calendar.MILLISECOND, 0)
+                        }
+                        if (eStart.timeInMillis > nowMillis) {
+                            candidates.add(eStart.timeInMillis)
+                        }
+
+                        val eEnd = (checkCal.clone() as Calendar).apply {
+                            set(Calendar.HOUR_OF_DAY, eveningEndHour)
+                            set(Calendar.MINUTE, eveningEndMinute)
+                            set(Calendar.SECOND, 0)
+                            set(Calendar.MILLISECOND, 0)
+                        }
+                        if (eEnd.timeInMillis > nowMillis) {
+                            candidates.add(eEnd.timeInMillis)
+                        }
+                    }
+                }
+            }
+        }
+
+        return candidates.filter { it > nowMillis }.minOrNull()
     }
 
     /**

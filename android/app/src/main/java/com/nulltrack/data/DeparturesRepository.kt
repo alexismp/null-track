@@ -129,20 +129,38 @@ class DeparturesRepository private constructor(private val context: Context) {
         }
     }
 
+    private fun isDepartureRecentOrUpcoming(departure: TrainDeparture): Boolean {
+        val timeParts = departure.aimedTime.split(":")
+        if (timeParts.size != 2) return true
+        val hour = timeParts[0].trim().toIntOrNull() ?: return true
+        val min = timeParts[1].trim().toIntOrNull() ?: return true
+
+        val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("Europe/Paris"))
+        val nowMinutes = cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE)
+        val depMinutes = hour * 60 + min
+
+        // Si le train est passé depuis plus de 15 minutes, il n'est plus pertinent pour le widget
+        val diff = depMinutes - nowMinutes
+        return diff >= -15
+    }
+
     fun hasDisruptions(minDelayMinutes: Int = 5): Boolean {
         return _departures.value.any {
-            it.isCancelled || it.status == DepartureStatus.CANCELLED ||
-            it.delayMinutes >= minDelayMinutes || (it.status == DepartureStatus.DELAYED && it.delayMinutes >= minDelayMinutes)
+            isDepartureRecentOrUpcoming(it) && (
+                it.isCancelled || it.status == DepartureStatus.CANCELLED ||
+                it.delayMinutes >= minDelayMinutes || (it.status == DepartureStatus.DELAYED && it.delayMinutes >= minDelayMinutes)
+            )
         }
     }
 
     fun getDisruptionSummary(minDelayMinutes: Int = 5): String? {
-        val cancelled = _departures.value.filter { it.isCancelled || it.status == DepartureStatus.CANCELLED }
+        val validDeps = _departures.value.filter { isDepartureRecentOrUpcoming(it) }
+        val cancelled = validDeps.filter { it.isCancelled || it.status == DepartureStatus.CANCELLED }
         if (cancelled.isNotEmpty()) {
             val t = cancelled.first()
             return "Train ${t.missionCode} ${t.aimedTime} supprimé"
         }
-        val delayed = _departures.value.filter { !it.isCancelled && it.delayMinutes >= minDelayMinutes }
+        val delayed = validDeps.filter { !it.isCancelled && it.delayMinutes >= minDelayMinutes }
         if (delayed.isNotEmpty()) {
             val t = delayed.first()
             return "Train ${t.missionCode} ${t.aimedTime} retardé (+${t.delayMinutes}m)"

@@ -16,6 +16,7 @@
 
 package com.nulltrack.widget
 
+import android.app.AlarmManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
@@ -23,6 +24,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.os.Build
 import android.util.Log
 import android.widget.RemoteViews
 import com.nulltrack.MainActivity
@@ -31,6 +33,10 @@ import com.nulltrack.data.DeparturesRepository
 import com.nulltrack.data.ScheduleConfig
 import com.nulltrack.data.ScheduleRepository
 import com.nulltrack.location.LocationHelper
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 class NullTrackWidgetProvider : AppWidgetProvider() {
 
@@ -45,6 +51,7 @@ class NullTrackWidgetProvider : AppWidgetProvider() {
         for (appWidgetId in appWidgetIds) {
             updateWidget(context, appWidgetManager, appWidgetId, schedule)
         }
+        scheduleNextTransitionAlarm(context, schedule)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -79,7 +86,7 @@ class NullTrackWidgetProvider : AppWidgetProvider() {
                 DeparturesRepository.getInstance(context).refresh()
                 updateAllWidgets(context)
             }
-            ACTION_REFRESH, AppWidgetManager.ACTION_APPWIDGET_UPDATE -> {
+            ACTION_REFRESH, AppWidgetManager.ACTION_APPWIDGET_UPDATE, Intent.ACTION_BOOT_COMPLETED -> {
                 updateAllWidgets(context)
             }
         }
@@ -89,6 +96,7 @@ class NullTrackWidgetProvider : AppWidgetProvider() {
         private const val TAG = "NullTrackWidget"
         const val ACTION_TOGGLE_MONITORING = "com.nulltrack.widget.ACTION_TOGGLE_MONITORING"
         const val ACTION_REFRESH = "com.nulltrack.widget.ACTION_REFRESH"
+        private const val ALARM_REQUEST_CODE = 9001
 
         fun updateAllWidgets(context: Context) {
             val appWidgetManager = AppWidgetManager.getInstance(context)
@@ -98,6 +106,69 @@ class NullTrackWidgetProvider : AppWidgetProvider() {
 
             for (appWidgetId in appWidgetIds) {
                 updateWidget(context, appWidgetManager, appWidgetId, schedule)
+            }
+
+            scheduleNextTransitionAlarm(context, schedule)
+        }
+
+        fun scheduleNextTransitionAlarm(context: Context, schedule: ScheduleConfig) {
+            try {
+                val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+                val intent = Intent(context, NullTrackWidgetProvider::class.java).apply {
+                    action = ACTION_REFRESH
+                }
+                val pendingIntent = PendingIntent.getBroadcast(
+                    context,
+                    ALARM_REQUEST_CODE,
+                    intent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+
+                val nextTransition = schedule.getNextTransitionMillis()
+                if (nextTransition == null || nextTransition <= System.currentTimeMillis()) {
+                    alarmManager.cancel(pendingIntent)
+                    Log.d(TAG, "Aucune transition de surveillance future à programmer pour le widget.")
+                    return
+                }
+
+                // Ajout d'un tampon d'1 seconde (1000 ms) pour garantir que
+                // l'horloge aura dépassé l'heure limite lors du réveil
+                val triggerAtMillis = nextTransition + 1000L
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    if (alarmManager.canScheduleExactAlarms()) {
+                        alarmManager.setExactAndAllowWhileIdle(
+                            AlarmManager.RTC_WAKEUP,
+                            triggerAtMillis,
+                            pendingIntent
+                        )
+                    } else {
+                        alarmManager.setAndAllowWhileIdle(
+                            AlarmManager.RTC_WAKEUP,
+                            triggerAtMillis,
+                            pendingIntent
+                        )
+                    }
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    alarmManager.setAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        triggerAtMillis,
+                        pendingIntent
+                    )
+                } else {
+                    alarmManager.set(
+                        AlarmManager.RTC_WAKEUP,
+                        triggerAtMillis,
+                        pendingIntent
+                    )
+                }
+
+                val debugFormat = SimpleDateFormat("dd/MM HH:mm:ss", Locale.FRANCE).apply {
+                    timeZone = TimeZone.getTimeZone("Europe/Paris")
+                }
+                Log.i(TAG, "Alarme widget programmée à ${debugFormat.format(Date(triggerAtMillis))} pour bascule de statut.")
+            } catch (e: Throwable) {
+                Log.e(TAG, "Erreur programmation alarme widget: ${e.message}", e)
             }
         }
 

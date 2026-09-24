@@ -54,8 +54,26 @@ gcloud services enable \
     fcm.googleapis.com \
     --project="${PROJECT_ID}"
 
-# 2. Déploiement de la Cloud Function Gen2
-echo "⚡ Déploiement de la fonction Cloud Functions Gen2..."
+# 2. Clé secrète d'administration pour /simulate-alert
+ADMIN_SECRET_KEY=${ADMIN_SECRET_KEY:-$(grep '^ADMIN_SECRET_KEY=' ./backend/.env 2>/dev/null | cut -d '=' -f2- | tr -d ' "'\''')}
+if [ -z "$ADMIN_SECRET_KEY" ]; then
+    ADMIN_SECRET_KEY=$(openssl rand -hex 16 2>/dev/null || python3 -c "import secrets; print(secrets.token_hex(16))")
+    echo "🔑 Génération automatique d'une clé secrète d'administration : ${ADMIN_SECRET_KEY}"
+fi
+
+# 3. Compte de service dédié pour Cloud Scheduler (Authentification OIDC)
+SCHEDULER_SA_NAME="nulltrack-scheduler-sa"
+SCHEDULER_SA="${SCHEDULER_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
+
+echo "🔐 Configuration du compte de service pour Cloud Scheduler (${SCHEDULER_SA})..."
+if ! gcloud iam service-accounts describe "${SCHEDULER_SA}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+    gcloud iam service-accounts create "${SCHEDULER_SA_NAME}" \
+        --display-name="NullTrack Cloud Scheduler Invoker" \
+        --project="${PROJECT_ID}" || true
+fi
+
+# 4. Déploiement de la Cloud Function Gen2 avec plafond d'instances et variables de sécurité
+echo "⚡ Déploiement de la fonction Cloud Functions Gen2 (max 2 instances)..."
 gcloud functions deploy "${SERVICE_NAME}" \
     --gen2 \
     --runtime=python311 \
@@ -63,16 +81,23 @@ gcloud functions deploy "${SERVICE_NAME}" \
     --source=./backend \
     --entry-point=check_trains_http \
     --trigger-http \
-    --allow-unauthenticated \
-    --set-env-vars="PRIM_API_KEY=${PRIM_API_KEY},FIREBASE_PROJECT_ID=${PROJECT_ID}" \
+    --max-instances=2 \
+    --set-env-vars="PRIM_API_KEY=${PRIM_API_KEY},FIREBASE_PROJECT_ID=${PROJECT_ID},ADMIN_SECRET_KEY=${ADMIN_SECRET_KEY},ALLOW_SIMULATION_ENDPOINT=true" \
     --project="${PROJECT_ID}"
 
 # Récupération de l'URL de la fonction
 FUNCTION_URL=$(gcloud functions describe "${SERVICE_NAME}" --gen2 --region="${REGION}" --project="${PROJECT_ID}" --format="value(serviceConfig.uri)")
 echo "✅ Cloud Function déployée avec succès : ${FUNCTION_URL}"
 
-# 3. Création ou mise à jour du job Cloud Scheduler
-echo "⏰ Configuration du job Cloud Scheduler (Toutes les 3 minutes)..."
+# Attribution du rôle Cloud Run Invoker au compte de service Scheduler
+gcloud run services add-iam-policy-binding "${SERVICE_NAME}" \
+    --region="${REGION}" \
+    --member="serviceAccount:${SCHEDULER_SA}" \
+    --role="roles/run.invoker" \
+    --project="${PROJECT_ID}" >/dev/null 2>&1 || true
+
+# 5. Création ou mise à jour du job Cloud Scheduler avec jeton OIDC
+echo "⏰ Configuration du job Cloud Scheduler (avec authentification OIDC)..."
 if gcloud scheduler jobs describe "${SCHEDULER_JOB_NAME}" --location="${REGION}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
     gcloud scheduler jobs update http "${SCHEDULER_JOB_NAME}" \
         --location="${REGION}" \
@@ -80,8 +105,10 @@ if gcloud scheduler jobs describe "${SCHEDULER_JOB_NAME}" --location="${REGION}"
         --time-zone="Europe/Paris" \
         --uri="${FUNCTION_URL}" \
         --http-method=GET \
+        --oidc-service-account-email="${SCHEDULER_SA}" \
+        --oidc-audience="${FUNCTION_URL}" \
         --project="${PROJECT_ID}"
-    echo "✅ Job Scheduler mis à jour."
+    echo "✅ Job Scheduler mis à jour avec authentification OIDC."
 else
     gcloud scheduler jobs create http "${SCHEDULER_JOB_NAME}" \
         --location="${REGION}" \
@@ -89,8 +116,10 @@ else
         --time-zone="Europe/Paris" \
         --uri="${FUNCTION_URL}" \
         --http-method=GET \
+        --oidc-service-account-email="${SCHEDULER_SA}" \
+        --oidc-audience="${FUNCTION_URL}" \
         --project="${PROJECT_ID}"
-    echo "✅ Job Scheduler créé."
+    echo "✅ Job Scheduler créé avec authentification OIDC."
 fi
 
 echo "=========================================================="

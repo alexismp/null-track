@@ -20,6 +20,20 @@ plugins {
     id("com.google.gms.google-services")
 }
 
+val localProperties = java.util.Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(localPropertiesFile.inputStream())
+}
+
+val backendUrl = localProperties.getProperty("backend.url")
+    ?: System.getenv("BACKEND_URL")
+    ?: ""
+
+val backendApiKey = localProperties.getProperty("backend.api.key")
+    ?: System.getenv("BACKEND_API_KEY")
+    ?: ""
+
 android {
     namespace = "com.nulltrack"
     compileSdk = 34
@@ -35,6 +49,9 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        buildConfigField("String", "BACKEND_URL", "\"$backendUrl\"")
+        buildConfigField("String", "BACKEND_API_KEY", "\"$backendApiKey\"")
     }
 
     buildTypes {
@@ -55,6 +72,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.8"
@@ -80,14 +98,17 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
 
-    // Firebase (BOM & Cloud Messaging & Firestore)
+    // Firebase (BOM & Cloud Messaging & Firestore & App Check)
     implementation(platform("com.google.firebase:firebase-bom:32.8.0"))
     implementation("com.google.firebase:firebase-messaging-ktx")
     implementation("com.google.firebase:firebase-firestore-ktx")
+    implementation("com.google.firebase:firebase-appcheck-playintegrity")
+    implementation("com.google.firebase:firebase-appcheck-ktx")
     implementation("com.google.firebase:firebase-analytics-ktx")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")

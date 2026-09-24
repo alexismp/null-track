@@ -177,13 +177,35 @@ class DeparturesRepository private constructor(private val context: Context) {
 
     private suspend fun fetchFromBackend(force: Boolean = false): Boolean = withContext(Dispatchers.IO) {
         try {
-            val endpointUrl = if (force) "$BACKEND_DEPARTURES_URL?fresh=true" else BACKEND_DEPARTURES_URL
+            val baseUrl = getBackendDeparturesUrl()
+            if (baseUrl.isBlank()) {
+                Log.d(TAG, "BACKEND_URL non configuré, repli vers Firestore.")
+                return@withContext false
+            }
+
+            val endpointUrl = if (force) "$baseUrl?fresh=true" else baseUrl
             val url = URL(endpointUrl)
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 6000
                 readTimeout = 8000
+                // 1. Clé secrète d'application (si définie dans local.properties)
+                if (com.nulltrack.BuildConfig.BACKEND_API_KEY.isNotBlank()) {
+                    setRequestProperty("X-API-Key", com.nulltrack.BuildConfig.BACKEND_API_KEY)
+                }
             }
+
+            // 2. Token Firebase App Check (attestation Play Integrity si disponible)
+            try {
+                val appCheck = com.google.firebase.appcheck.FirebaseAppCheck.getInstance()
+                val tokenResult = kotlinx.coroutines.tasks.await(appCheck.getAppCheckToken(false))
+                if (tokenResult != null && tokenResult.token.isNotBlank()) {
+                    conn.setRequestProperty("X-Firebase-AppCheck", tokenResult.token)
+                }
+            } catch (e: Exception) {
+                // App Check optionnel si non encore déployé
+            }
+
             if (conn.responseCode == 200) {
                 val reader = BufferedReader(InputStreamReader(conn.inputStream))
                 val responseText = reader.readText()
@@ -277,8 +299,12 @@ class DeparturesRepository private constructor(private val context: Context) {
         private const val KEY_LAST_UPDATED = "last_updated"
         private const val COLLECTION_LIVE_STATUS = "live_status"
         private const val DOC_DEPARTURES = "departures_meudon"
-        private const val BACKEND_DEPARTURES_URL = "https://null-track-monitor-ti3svqykia-ew.a.run.app/departures"
         private const val CLIENT_CACHE_TTL_MS = 60_000L // 60 secondes de cache local
+
+        private fun getBackendDeparturesUrl(): String {
+            val base = com.nulltrack.BuildConfig.BACKEND_URL.trim().trimEnd('/')
+            return if (base.isNotBlank()) "$base/departures" else ""
+        }
 
         @Volatile
         private var instance: DeparturesRepository? = null

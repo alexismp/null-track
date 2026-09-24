@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 try:
     import functions_framework
@@ -48,7 +48,13 @@ from firestore_client import (
     update_last_check_timestamp,
     update_monitoring_schedule,
 )
-from config import DEPARTURES_CACHE_TTL_SECONDS
+from config import (
+    ADMIN_SECRET_KEY,
+    ALLOW_SIMULATION_ENDPOINT,
+    APP_CHECK_ENFORCED,
+    BACKEND_API_KEY,
+    DEPARTURES_CACHE_TTL_SECONDS,
+)
 from monitor import (
     extract_all_departures,
     extract_cancelled_trains,
@@ -168,6 +174,71 @@ def run_cancellation_check(force: bool = False) -> Dict[str, Any]:
         }
 
 
+def verify_admin_authorization(request: Request) -> Tuple[bool, str, int]:
+    """
+    Vérifie l'autorisation d'accès aux routes d'administration et de test (/simulate-alert).
+    Exige la clé ADMIN_SECRET_KEY si configurée, et vérifie ALLOW_SIMULATION_ENDPOINT.
+    """
+    allow_sim = os.getenv("ALLOW_SIMULATION_ENDPOINT", str(ALLOW_SIMULATION_ENDPOINT)).lower() in ("true", "1", "yes")
+    if not allow_sim:
+        return False, "L'endpoint de simulation est désactivé sur cet environnement.", 403
+
+    admin_key = os.getenv("ADMIN_SECRET_KEY", ADMIN_SECRET_KEY)
+    if not admin_key:
+        # En production Cloud Run / Cloud Functions, la clé admin est obligatoire
+        if os.getenv("K_SERVICE") or os.getenv("FUNCTION_TARGET"):
+            return False, "Accès refusé : la variable ADMIN_SECRET_KEY doit être définie sur le serveur.", 401
+        return True, "OK (mode dev)", 200
+
+    provided_key = (
+        request.headers.get("X-Admin-Key")
+        or request.args.get("admin_key")
+        or (request.get_json(silent=True) or {}).get("admin_key")
+    )
+    if provided_key != admin_key:
+        return False, "Non autorisé : clé admin (X-Admin-Key) manquante ou invalide.", 401
+
+    return True, "OK", 200
+
+
+def verify_client_authorization(request: Request) -> Tuple[bool, str, int]:
+    """
+    Vérifie l'autorisation des requêtes clientes (App Android, Widget) :
+    1. Accepte les appels internes Google Cloud (Cloud Scheduler OIDC)
+    2. Vérifie Firebase App Check (Play Integrity) si activé (APP_CHECK_ENFORCED)
+    3. Vérifie la clé d'application BACKEND_API_KEY si configurée
+    """
+    # 1. Autoriser les requêtes internes Cloud Scheduler
+    user_agent = request.headers.get("User-Agent", "")
+    if "Google-Cloud-Scheduler" in user_agent or request.headers.get("X-CloudScheduler"):
+        return True, "Cloud Scheduler", 200
+
+    # 2. Vérification Firebase App Check si token présent
+    app_check_enforced = os.getenv("APP_CHECK_ENFORCED", str(APP_CHECK_ENFORCED)).lower() in ("true", "1", "yes")
+    app_check_token = request.headers.get("X-Firebase-AppCheck")
+    if app_check_token:
+        try:
+            from firebase_admin import app_check
+            app_check.verify_token(app_check_token)
+            return True, "App Check valide", 200
+        except Exception as e:
+            logger.warning(f"Validation App Check échouée: {e}")
+            if app_check_enforced:
+                return False, "Jeton App Check invalide", 403
+
+    if app_check_enforced and not app_check_token:
+        return False, "Jeton App Check (Play Integrity) requis.", 403
+
+    # 3. Vérification de la clé d'API applicative (X-API-Key) si configurée
+    backend_key = os.getenv("BACKEND_API_KEY", BACKEND_API_KEY)
+    if backend_key:
+        provided_api_key = request.headers.get("X-API-Key") or request.args.get("api_key")
+        if provided_api_key != backend_key:
+            return False, "Non autorisé : clé d'API (X-API-Key) invalide ou absente.", 401
+
+    return True, "OK", 200
+
+
 @functions_framework.http
 def check_trains_http(request: Request):
     """
@@ -175,6 +246,17 @@ def check_trains_http(request: Request):
     déclenché par Cloud Scheduler ou l'application Android.
     """
     action = request.args.get("action", "")
+
+    # Vérification d'autorisation pour les requêtes clientes (App Android & Widget)
+    is_client_action = (
+        action in ("departures", "get_config", "set_config", "trigger_quick", "quick_monitoring", "stats", "cancel_quick", "trigger_return", "cancel_return")
+        or request.path.endswith(("/departures", "/config", "/trigger-quick", "/cancel-quick", "/trigger-return", "/cancel-return", "/stats"))
+    )
+    if is_client_action:
+        client_ok, client_msg, client_code = verify_client_authorization(request)
+        if not client_ok:
+            logger.warning(f"Accès client refusé ({request.path}): {client_msg}")
+            return jsonify({"status": "error", "message": client_msg}), client_code
 
     # 1. Endpoint de lecture de configuration : GET ?action=get_config ou path /config
     if request.method == "GET" and (action == "get_config" or request.path.endswith("/config")):
@@ -237,6 +319,12 @@ def check_trains_http(request: Request):
 
     # 7. Endpoint pour simuler l'envoi d'une alerte d'annulation ou de retard (Test Push)
     if action in ("simulate_alert", "simulate_cancellation", "test_alert") or request.path.endswith("/simulate-alert"):
+        # Vérification d'autorisation administrateur stricte (X-Admin-Key)
+        auth_ok, auth_msg, auth_code = verify_admin_authorization(request)
+        if not auth_ok:
+            logger.warning(f"Accès refusé à /simulate-alert: {auth_msg}")
+            return jsonify({"status": "error", "message": auth_msg}), auth_code
+
         body = request.get_json(silent=True) or {}
         mission = str(request.args.get("mission", body.get("mission", "ROPO")))
         dep_time = str(request.args.get("time", body.get("time", "08:12")))

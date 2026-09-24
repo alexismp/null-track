@@ -25,8 +25,8 @@ Usage :
     python3 backend/send_test_alert.py --mission POMA --time 08:35 --type cancel
     python3 backend/send_test_alert.py --mission ROPO --time 18:42 --type delay --delay 15 --direction TO_MEUDON
 
-    # 3. Déclenchement via le service Cloud Run distant (aucun SDK Python requis)
-    python3 backend/send_test_alert.py --remote https://null-track-monitor-ti3svqykia-ew.a.run.app
+    # 3. Déclenchement via le service Cloud Run distant (avec clé admin secrète)
+    python3 backend/send_test_alert.py --remote https://votre-service.run.app --admin-key mon_secret_admin
 """
 
 import argparse
@@ -83,6 +83,7 @@ def send_local(args):
 
 
 def send_remote(remote_url, args):
+    import urllib.error
     import urllib.parse
     import urllib.request
 
@@ -102,7 +103,12 @@ def send_remote(remote_url, args):
     print("=" * 60)
 
     try:
-        req = urllib.request.Request(target_url, headers={"User-Agent": "NullTrack-CLI/1.0"})
+        headers = {"User-Agent": "NullTrack-CLI/1.0"}
+        admin_key = args.admin_key or os.getenv("ADMIN_SECRET_KEY")
+        if admin_key:
+            headers["X-Admin-Key"] = admin_key
+
+        req = urllib.request.Request(target_url, headers=headers)
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
             print(json.dumps(data, indent=2, ensure_ascii=False))
@@ -110,6 +116,11 @@ def send_remote(remote_url, args):
                 print("\n✅ Notification envoyée avec succès par le backend Cloud Run !")
             else:
                 print(f"\n⚠️ Réponse backend : {data.get('message')}")
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode() if e.fp else ""
+        print(f"❌ Erreur HTTP {e.code} : {e.reason}")
+        if error_body:
+            print(f"Détail : {error_body}")
     except Exception as e:
         print(f"❌ Erreur lors de l'appel distant : {e}")
 
@@ -122,7 +133,16 @@ def main():
     parser.add_argument("--type", default="cancel", choices=["cancel", "delay"], help="Type d'incident (cancel ou delay)")
     parser.add_argument("--delay", type=int, default=10, help="Retard en minutes (si --type delay)")
     parser.add_argument("--topic", default=FCM_TOPIC, help="Topic FCM destinataire")
-    parser.add_argument("--remote", default=None, help="URL du backend Cloud Run (ex: https://null-track-monitor-ti3svqykia-ew.a.run.app)")
+    parser.add_argument(
+        "--remote",
+        default=os.getenv("BACKEND_URL"),
+        help="URL du backend Cloud Run (ex: https://votre-service.run.app ou défini via BACKEND_URL)",
+    )
+    parser.add_argument(
+        "--admin-key",
+        default=os.getenv("ADMIN_SECRET_KEY"),
+        help="Clé secrète d'administration requise pour /simulate-alert (ou définie via ADMIN_SECRET_KEY)",
+    )
 
     args = parser.parse_args()
 

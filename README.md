@@ -130,11 +130,16 @@ Le Cloud Scheduler interroge l'endpoint du service toutes les 3 minutes. Les req
 
 1. Téléchargez votre fichier `google-services.json` depuis la console Firebase (package : `com.nulltrack`).
 2. Placez-le dans `android/app/google-services.json`.
-3. Compilez l'application en ligne de commande :
+3. Configurez l'URL de votre backend dans `android/local.properties` (non suivi par Git) :
+   ```properties
+   backend.url=https://votre-service-cloud-run.run.app
+   backend.api.key=votre_cle_optionnelle
+   ```
+4. Compilez l'application en ligne de commande :
    ```bash
    ./android/gradlew -p android assembleDebug
    ```
-4. Installez l'APK sur votre smartphone Android connecté via ADB :
+5. Installez l'APK sur votre smartphone Android connecté via ADB :
    ```bash
    adb install -r android/app/build/outputs/apk/debug/app-debug.apk
    ```
@@ -148,6 +153,7 @@ Les variables suivantes peuvent être définies dans `backend/.env` ou en variab
 | Variable | Description | Valeur par défaut |
 | :--- | :--- | :--- |
 | `PRIM_API_KEY` | Clé d'API Île-de-France Mobilités PRIM | *Obligatoire* |
+| `ADMIN_SECRET_KEY` | Clé secrète requise pour déclencher les simulations (`/simulate-alert`) | *Aléatoire / Générée au déploiement* |
 | `PRIM_MONITORING_REF` | Référence StopArea IDFM surveillée | `STIF:StopArea:SP:43162:` (Meudon) |
 | `LINE_REF` | Référence de la ligne Transilien | `STIF:Line::C01742:` (Ligne N) |
 | `MORNING_START_HOUR` / `_MINUTE` | Début de la surveillance matin (vers Paris) | `7`h `00` |
@@ -157,6 +163,7 @@ Les variables suivantes peuvent être définies dans `backend/.env` ou en variab
 | `ACTIVE_DAYS` | Jours actifs (0=Lundi, 4=Vendredi) | `0,1,2,3,4` |
 | `MIN_DELAY_MINUTES` | Retard minimum déclenchant une alerte | `5` (minutes) |
 | `DEPARTURES_CACHE_TTL_SECONDS` | Durée de mise en cache serveur des départs | `90` (secondes) |
+| `APP_CHECK_ENFORCED` | Exige une attestation Firebase App Check (Play Integrity) | `false` |
 | `FCM_TOPIC` | Topic Firebase Cloud Messaging | `trains_meudon_montparnasse` |
 
 ---

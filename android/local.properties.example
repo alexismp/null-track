@@ -1,0 +1,4 @@
+# Local configuration template (do NOT commit your actual local.properties)
+sdk.dir=/Users/votre-nom/Library/Android/sdk
+backend.url=https://votre-service-cloud-run.run.app
+backend.api.key=

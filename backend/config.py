@@ -87,3 +87,13 @@ FIRESTORE_COLLECTION = os.getenv("FIRESTORE_COLLECTION", "notified_trains")
 SETTINGS_COLLECTION = os.getenv("SETTINGS_COLLECTION", "settings")
 SCHEDULE_DOCUMENT = os.getenv("SCHEDULE_DOCUMENT", "monitoring_schedule")
 FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "")
+
+# --- Sécurité & Authentification des Endpoints ---
+# Clé secrète pour les opérations administratives et simulations (/simulate-alert)
+ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY", "")
+# Clé secrète d'application optionnelle (transmise dans le header X-API-Key)
+BACKEND_API_KEY = os.getenv("BACKEND_API_KEY", "")
+# Autoriser ou désactiver l'endpoint de simulation en production
+ALLOW_SIMULATION_ENDPOINT = os.getenv("ALLOW_SIMULATION_ENDPOINT", "true").lower() in ("true", "1", "yes")
+# Exiger un jeton Firebase App Check valide (Play Integrity) pour les requêtes mobiles
+APP_CHECK_ENFORCED = os.getenv("APP_CHECK_ENFORCED", "false").lower() in ("true", "1", "yes")

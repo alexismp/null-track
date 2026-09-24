@@ -149,14 +149,24 @@ class DeparturesRepository private constructor(private val context: Context) {
         return null
     }
 
-    fun refresh() {
+    private var lastFetchTimestamp: Long = 0
+
+    fun refresh(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (!force && (now - lastFetchTimestamp < CLIENT_CACHE_TTL_MS) && _departures.value.isNotEmpty()) {
+            Log.d(TAG, "Consultation ponctuelle : utilisation du cache local client (< ${CLIENT_CACHE_TTL_MS / 1000}s), aucun appel réseau émis.")
+            return
+        }
+
         if (_isLoading.value) return
         _isLoading.value = true
 
         scope.launch {
             try {
-                val success = fetchFromBackend()
-                if (!success) {
+                val success = fetchFromBackend(force)
+                if (success) {
+                    lastFetchTimestamp = System.currentTimeMillis()
+                } else {
                     fetchFromFirestore()
                 }
             } finally {
@@ -165,9 +175,10 @@ class DeparturesRepository private constructor(private val context: Context) {
         }
     }
 
-    private suspend fun fetchFromBackend(): Boolean = withContext(Dispatchers.IO) {
+    private suspend fun fetchFromBackend(force: Boolean = false): Boolean = withContext(Dispatchers.IO) {
         try {
-            val url = URL(BACKEND_DEPARTURES_URL)
+            val endpointUrl = if (force) "$BACKEND_DEPARTURES_URL?fresh=true" else BACKEND_DEPARTURES_URL
+            val url = URL(endpointUrl)
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 6000
@@ -192,7 +203,12 @@ class DeparturesRepository private constructor(private val context: Context) {
                         _lastUpdated.value = updated
                         saveCachedDepartures(list, updated)
                         notifyWidgetUpdate()
-                        Log.d(TAG, "${list.size} départs rafraîchis avec succès via HTTP backend.")
+                        val isCachedOnServer = json.optBoolean("cached", false)
+                        val cacheAge = json.optInt("cache_age_seconds", 0)
+                        Log.d(
+                            TAG,
+                            "${list.size} départs rafraîchis via backend (serveur en cache: $isCachedOnServer, âge: ${cacheAge}s)."
+                        )
                         return@withContext true
                     }
                 }
@@ -261,7 +277,8 @@ class DeparturesRepository private constructor(private val context: Context) {
         private const val KEY_LAST_UPDATED = "last_updated"
         private const val COLLECTION_LIVE_STATUS = "live_status"
         private const val DOC_DEPARTURES = "departures_meudon"
-        private const val BACKEND_DEPARTURES_URL = "https://null-track-monitor-ti3svqykia-ew.a.run.app/departures?fresh=true"
+        private const val BACKEND_DEPARTURES_URL = "https://null-track-monitor-ti3svqykia-ew.a.run.app/departures"
+        private const val CLIENT_CACHE_TTL_MS = 60_000L // 60 secondes de cache local
 
         @Volatile
         private var instance: DeparturesRepository? = null

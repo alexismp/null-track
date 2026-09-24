@@ -212,12 +212,23 @@ def fetch_stop_monitoring(
     params: Dict[str, str] = {
         "MonitoringRef": monitoring_ref,
     }
-    if line_ref:
-        params["LineRef"] = line_ref
+    response = None
+    try:
+        response = requests.get(PRIM_API_URL, headers=headers, params=params, timeout=10)
+        from firestore_client import record_prim_call_stat
 
-    response = requests.get(PRIM_API_URL, headers=headers, params=params, timeout=10)
-    response.raise_for_status()
-    return response.json()
+        record_prim_call_stat(response.status_code)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        if response is None:
+            try:
+                from firestore_client import record_prim_call_stat
+
+                record_prim_call_stat(500)
+            except Exception:
+                pass
+        raise
 
 
 def is_train_cancelled(call: Dict[str, Any], journey: Dict[str, Any]) -> bool:

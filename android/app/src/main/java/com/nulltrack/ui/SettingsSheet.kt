@@ -45,6 +45,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nulltrack.data.AppStats
 import com.nulltrack.data.ScheduleConfig
 import com.nulltrack.data.TrainAlert
 import com.nulltrack.ui.theme.*
@@ -57,6 +58,7 @@ import java.util.Locale
 fun SettingsSheet(
     schedule: ScheduleConfig,
     alerts: List<TrainAlert> = emptyList(),
+    stats: AppStats = AppStats(),
     isSubscribed: Boolean = true,
     onDismiss: () -> Unit,
     onSaveSchedule: (ScheduleConfig) -> Unit,
@@ -686,6 +688,181 @@ fun SettingsSheet(
                 }
             }
 
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // ==========================================
+            // 10. STATISTIQUES D'USAGE & PERTURBATIONS
+            // ==========================================
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = BackgroundLight)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("📊", fontSize = 18.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Statistiques d'usage & Ligne N",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = TextPrimary
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Ligne 1 : Surveillances demandées (Manuelles vs Programmées)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        StatCounterCard(
+                            modifier = Modifier.weight(1f),
+                            title = "Surveillances manuelles",
+                            count = stats.totalManualSurveillances,
+                            subtitle = "App: ${stats.surveillancesFromApp} • Widget: ${stats.surveillancesFromWidget}",
+                            icon = "👆",
+                            accentColor = TransilienN
+                        )
+                        StatCounterCard(
+                            modifier = Modifier.weight(1f),
+                            title = "Cycles programmés",
+                            count = stats.totalScheduledChecks,
+                            subtitle = "Matin & Soir",
+                            icon = "⏰",
+                            accentColor = SuccessGreen
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Ligne 2 : Perturbations détectées (Annulations, Retards, Alertes)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        StatCounterCard(
+                            modifier = Modifier.weight(1f),
+                            title = "Annulations",
+                            count = stats.totalCancellations,
+                            subtitle = "Trains supprimés",
+                            icon = "🛑",
+                            accentColor = Color(0xFFC62828)
+                        )
+                        StatCounterCard(
+                            modifier = Modifier.weight(1f),
+                            title = "Retards (≥ 5m)",
+                            count = stats.totalDelays,
+                            subtitle = "Trains retardés",
+                            icon = "⏱️",
+                            accentColor = Color(0xFFE65100)
+                        )
+                        StatCounterCard(
+                            modifier = Modifier.weight(1f),
+                            title = "Alertes",
+                            count = stats.totalAlertsSent,
+                            subtitle = "Notifications",
+                            icon = "🔔",
+                            accentColor = TransilienN
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Ligne 3 : Appels API PRIM (SIRI Lite)
+                    Text(
+                        text = "🌐 Appels API PRIM (Île-de-France Mobilités)",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        StatCounterCard(
+                            modifier = Modifier.weight(1f),
+                            title = "Total",
+                            count = stats.primCallsTotal,
+                            subtitle = "Requêtes",
+                            icon = "📡",
+                            accentColor = TransilienN
+                        )
+                        StatCounterCard(
+                            modifier = Modifier.weight(1f),
+                            title = "2xx",
+                            count = stats.primCalls2xx,
+                            subtitle = "Succès",
+                            icon = "✅",
+                            accentColor = SuccessGreen
+                        )
+                        StatCounterCard(
+                            modifier = Modifier.weight(1f),
+                            title = "4xx",
+                            count = stats.primCalls4xx,
+                            subtitle = "Client",
+                            icon = "⚠️",
+                            accentColor = Color(0xFFE65100)
+                        )
+                        StatCounterCard(
+                            modifier = Modifier.weight(1f),
+                            title = "5xx",
+                            count = stats.primCalls5xx,
+                            subtitle = "Serveur",
+                            icon = "❌",
+                            accentColor = Color(0xFFC62828)
+                        )
+                    }
+
+                    if (stats.lastPrimStatus != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        val statusColor = when {
+                            stats.lastPrimStatus in 200..299 -> SuccessGreen
+                            stats.lastPrimStatus in 400..499 -> Color(0xFFE65100)
+                            else -> Color(0xFFC62828)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Dernier appel PRIM : ",
+                                fontSize = 12.sp,
+                                color = TextSecondary
+                            )
+                            Text(
+                                text = "HTTP ${stats.lastPrimStatus}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = statusColor
+                            )
+                            if (!stats.lastPrimCall.isNullOrBlank()) {
+                                Text(
+                                    text = " (${stats.lastPrimCall.take(16).replace('T', ' ')})",
+                                    fontSize = 12.sp,
+                                    color = TextSecondary
+                                )
+                            }
+                        }
+                    }
+
+                    if (stats.lastManualTrigger != null || stats.lastScheduledCheck != null || stats.lastUpdated != null) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = "Dernière synchro : ${stats.lastUpdated?.take(16)?.replace('T', ' ') ?: "En cours..."}",
+                            fontSize = 12.sp,
+                            color = TextSecondary
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(26.dp))
 
             // ==========================================
@@ -859,3 +1036,50 @@ fun AlertCard(alert: TrainAlert) {
         }
     }
 }
+
+@Composable
+fun StatCounterCard(
+    modifier: Modifier = Modifier,
+    title: String,
+    count: Int,
+    subtitle: String,
+    icon: String,
+    accentColor: Color
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = SurfaceLight),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(text = icon, fontSize = 16.sp)
+                Text(
+                    text = "$count",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = accentColor
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = title,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = TextPrimary
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                fontSize = 11.sp,
+                color = TextSecondary
+            )
+        }
+    }
+}
+

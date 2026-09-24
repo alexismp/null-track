@@ -71,7 +71,8 @@ class NullTrackWidgetProvider : AppWidgetProvider() {
                     val duration = current.quickMonitoringDurationMinutes
                     repository.triggerQuickMonitoring(
                         durationMinutes = duration,
-                        direction = detection.direction.code
+                        direction = detection.direction.code,
+                        source = "widget"
                     )
                 }
 

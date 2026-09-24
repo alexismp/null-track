@@ -290,3 +290,182 @@ def cancel_quick_monitoring() -> Dict[str, Any]:
         "return_commute_until": None,
     })
 
+
+_in_memory_stats: Dict[str, Any] = {
+    "total_manual_surveillances": 0,
+    "surveillances_from_app": 0,
+    "surveillances_from_widget": 0,
+    "total_scheduled_checks": 0,
+    "total_cancellations": 0,
+    "total_delays": 0,
+    "total_alerts_sent": 0,
+    "total_checks": 0,
+    "prim_calls_total": 0,
+    "prim_calls_2xx": 0,
+    "prim_calls_4xx": 0,
+    "prim_calls_5xx": 0,
+    "last_prim_status": None,
+    "last_prim_call": None,
+    "last_updated": None,
+}
+
+
+def record_prim_call_stat(status_code: int) -> None:
+    """Enregistre un appel à l'API IDFM PRIM et catégorise le statut HTTP (2xx, 4xx, 5xx)."""
+    global _in_memory_stats
+    now_iso = datetime.now(timezone.utc).isoformat()
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    is_2xx = 200 <= status_code < 300
+    is_4xx = 400 <= status_code < 500
+    is_5xx = status_code >= 500 or status_code < 200
+
+    _in_memory_stats["prim_calls_total"] += 1
+    if is_2xx:
+        _in_memory_stats["prim_calls_2xx"] += 1
+    elif is_4xx:
+        _in_memory_stats["prim_calls_4xx"] += 1
+    elif is_5xx:
+        _in_memory_stats["prim_calls_5xx"] += 1
+    _in_memory_stats["last_prim_status"] = status_code
+    _in_memory_stats["last_prim_call"] = now_iso
+    _in_memory_stats["last_updated"] = now_iso
+
+    db = get_firestore_client()
+    if db is not None:
+        try:
+            from google.cloud import firestore
+
+            updates: Dict[str, Any] = {
+                "prim_calls_total": firestore.Increment(1),
+                "last_prim_status": status_code,
+                "last_prim_call": now_iso,
+                "last_updated": now_iso,
+            }
+            if is_2xx:
+                updates["prim_calls_2xx"] = firestore.Increment(1)
+            elif is_4xx:
+                updates["prim_calls_4xx"] = firestore.Increment(1)
+            elif is_5xx:
+                updates["prim_calls_5xx"] = firestore.Increment(1)
+
+            db.collection(SETTINGS_COLLECTION).document("stats").set(updates, merge=True)
+
+            daily_updates: Dict[str, Any] = {
+                "date": today_str,
+                "prim_calls_total": firestore.Increment(1),
+                "last_updated": now_iso,
+            }
+            if is_2xx:
+                daily_updates["prim_calls_2xx"] = firestore.Increment(1)
+            elif is_4xx:
+                daily_updates["prim_calls_4xx"] = firestore.Increment(1)
+            elif is_5xx:
+                daily_updates["prim_calls_5xx"] = firestore.Increment(1)
+
+            db.collection(SETTINGS_COLLECTION).document(f"stats_daily_{today_str}").set(daily_updates, merge=True)
+            logger.info(f"Statistique appel PRIM ({status_code}) enregistrée dans Firestore.")
+        except Exception as e:
+            logger.error(f"Erreur enregistrement stat PRIM Firestore: {e}")
+
+
+def record_backend_stats(
+    scheduled_check: bool = False,
+    cancellations_count: int = 0,
+    delays_count: int = 0,
+    alerts_sent: int = 0,
+) -> None:
+    """Enregistre et incrémente les statistiques d'usage et de ponctualité dans Firestore."""
+    global _in_memory_stats
+    now_iso = datetime.now(timezone.utc).isoformat()
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    _in_memory_stats["total_checks"] += 1
+    if scheduled_check:
+        _in_memory_stats["total_scheduled_checks"] += 1
+    _in_memory_stats["total_cancellations"] += cancellations_count
+    _in_memory_stats["total_delays"] += delays_count
+    _in_memory_stats["total_alerts_sent"] += alerts_sent
+    _in_memory_stats["last_updated"] = now_iso
+
+    db = get_firestore_client()
+    if db is not None:
+        try:
+            from google.cloud import firestore
+
+            summary_updates: Dict[str, Any] = {
+                "total_checks": firestore.Increment(1),
+                "total_cancellations": firestore.Increment(cancellations_count),
+                "total_delays": firestore.Increment(delays_count),
+                "total_alerts_sent": firestore.Increment(alerts_sent),
+                "last_updated": now_iso,
+            }
+            if scheduled_check:
+                summary_updates["total_scheduled_checks"] = firestore.Increment(1)
+                summary_updates["last_scheduled_check"] = now_iso
+
+            db.collection(SETTINGS_COLLECTION).document("stats").set(summary_updates, merge=True)
+
+            daily_updates: Dict[str, Any] = {
+                "date": today_str,
+                "checks": firestore.Increment(1),
+                "cancellations": firestore.Increment(cancellations_count),
+                "delays": firestore.Increment(delays_count),
+                "alerts_sent": firestore.Increment(alerts_sent),
+                "last_updated": now_iso,
+            }
+            if scheduled_check:
+                daily_updates["scheduled_checks"] = firestore.Increment(1)
+
+            db.collection(SETTINGS_COLLECTION).document(f"stats_daily_{today_str}").set(daily_updates, merge=True)
+            logger.info("Statistiques d'usage mises à jour dans Firestore.")
+        except Exception as e:
+            logger.error(f"Erreur mise à jour des statistiques Firestore: {e}")
+
+
+def record_manual_surveillance_stat(source: str = "app") -> None:
+    """Incrémente le compteur de surveillance manuelle déclenchée."""
+    global _in_memory_stats
+    now_iso = datetime.now(timezone.utc).isoformat()
+    _in_memory_stats["total_manual_surveillances"] += 1
+    if source == "widget":
+        _in_memory_stats["surveillances_from_widget"] += 1
+    else:
+        _in_memory_stats["surveillances_from_app"] += 1
+
+    db = get_firestore_client()
+    if db is not None:
+        try:
+            from google.cloud import firestore
+
+            updates: Dict[str, Any] = {
+                "total_manual_surveillances": firestore.Increment(1),
+                "last_manual_trigger": now_iso,
+                "last_updated": now_iso,
+            }
+            if source == "widget":
+                updates["surveillances_from_widget"] = firestore.Increment(1)
+            else:
+                updates["surveillances_from_app"] = firestore.Increment(1)
+
+            db.collection(SETTINGS_COLLECTION).document("stats").set(updates, merge=True)
+        except Exception as e:
+            logger.error(f"Erreur incrément stats manuelles Firestore: {e}")
+
+
+def get_stats_summary() -> Dict[str, Any]:
+    """Récupère le résumé consolidé des statistiques depuis Firestore."""
+    global _in_memory_stats
+    db = get_firestore_client()
+    if db is not None:
+        try:
+            doc = db.collection(SETTINGS_COLLECTION).document("stats").get()
+            if doc.exists:
+                data = doc.to_dict() or {}
+                _in_memory_stats.update(data)
+                return _in_memory_stats.copy()
+        except Exception as e:
+            logger.error(f"Erreur lecture statistiques Firestore: {e}")
+    return _in_memory_stats.copy()
+
+

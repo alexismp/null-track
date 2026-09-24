@@ -42,6 +42,7 @@ import com.google.firebase.messaging.FirebaseMessaging
 import com.nulltrack.data.AlertRepository
 import com.nulltrack.data.DeparturesRepository
 import com.nulltrack.data.ScheduleRepository
+import com.nulltrack.data.StatsRepository
 import com.nulltrack.data.TrainAlert
 import com.nulltrack.location.LocationHelper
 import com.nulltrack.service.NullTrackMessagingService
@@ -54,6 +55,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var repository: AlertRepository
     private lateinit var scheduleRepository: ScheduleRepository
     private lateinit var departuresRepository: DeparturesRepository
+    private lateinit var statsRepository: StatsRepository
     private var isSubscribedToTopic by mutableStateOf(false)
 
     // Demande des permissions Notifications & Localisation
@@ -82,6 +84,7 @@ class MainActivity : ComponentActivity() {
         repository = AlertRepository.getInstance(applicationContext)
         scheduleRepository = ScheduleRepository.getInstance(applicationContext)
         departuresRepository = DeparturesRepository.getInstance(applicationContext)
+        statsRepository = StatsRepository.getInstance(applicationContext)
 
         handleOpenDeparturesIntent(intent)
         checkAppPermissions()
@@ -94,6 +97,7 @@ class MainActivity : ComponentActivity() {
                 val departures by departuresRepository.departures.collectAsState()
                 val lastUpdatedDepartures by departuresRepository.lastUpdated.collectAsState()
                 val isDeparturesLoading by departuresRepository.isLoading.collectAsState()
+                val stats by statsRepository.stats.collectAsState()
 
                 var showSettingsSheet by remember { mutableStateOf(false) }
 
@@ -103,7 +107,7 @@ class MainActivity : ComponentActivity() {
                     lastUpdatedDepartures = lastUpdatedDepartures,
                     isDeparturesLoading = isDeparturesLoading,
                     onSettingsClick = { showSettingsSheet = true },
-                    onRefreshDepartures = { departuresRepository.refresh() },
+                    onRefreshDepartures = { departuresRepository.refresh(force = true) },
                     onTriggerQuickMonitoring = { duration, direction ->
                         scheduleRepository.resumeNow()
                         scheduleRepository.triggerQuickMonitoring(duration, direction)
@@ -134,6 +138,7 @@ class MainActivity : ComponentActivity() {
                     SettingsSheet(
                         schedule = schedule,
                         alerts = alerts,
+                        stats = stats,
                         isSubscribed = isSubscribedToTopic,
                         onDismiss = { showSettingsSheet = false },
                         onSaveSchedule = { newSchedule ->
@@ -172,6 +177,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         departuresRepository.refresh()
+        statsRepository.refresh()
         com.nulltrack.widget.NullTrackWidgetProvider.updateAllWidgets(applicationContext)
     }
 

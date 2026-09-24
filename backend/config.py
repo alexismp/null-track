@@ -78,6 +78,9 @@ NOTIFY_DELAYS = os.getenv("NOTIFY_DELAYS", "true").lower() in ("true", "1", "yes
 MIN_DELAY_MINUTES = int(os.getenv("MIN_DELAY_MINUTES", "5"))
 DEFAULT_QUICK_DURATION_MINUTES = int(os.getenv("DEFAULT_QUICK_DURATION_MINUTES", "60"))
 
+# TTL de cache pour la consultation des départs (Méthode 2 On-Demand : 90 secondes)
+DEPARTURES_CACHE_TTL_SECONDS = int(os.getenv("DEPARTURES_CACHE_TTL_SECONDS", "90"))
+
 # --- Firebase & Firestore Configuration ---
 FCM_TOPIC = os.getenv("FCM_TOPIC", "trains_meudon_montparnasse")
 FIRESTORE_COLLECTION = os.getenv("FIRESTORE_COLLECTION", "notified_trains")

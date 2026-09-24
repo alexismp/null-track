@@ -37,14 +37,18 @@ from firestore_client import (
     cancel_return_commute,
     get_live_departures,
     get_monitoring_schedule,
+    get_stats_summary,
     is_train_notified,
     mark_train_as_notified,
+    record_backend_stats,
+    record_manual_surveillance_stat,
     save_live_departures,
     trigger_quick_monitoring,
     trigger_return_commute,
     update_last_check_timestamp,
     update_monitoring_schedule,
 )
+from config import DEPARTURES_CACHE_TTL_SECONDS
 from monitor import (
     extract_all_departures,
     extract_cancelled_trains,
@@ -131,12 +135,24 @@ def run_cancellation_check(force: bool = False) -> Dict[str, Any]:
                     "delay_minutes": train.get("delay_minutes", 0),
                 })
 
+        cancelled_detected = len([t for t in disrupted_trains if t.get("status_code") == "CANCELLED"])
+        delayed_detected = len([t for t in disrupted_trains if t.get("status_code") == "DELAYED"])
+
+        # Enregistrement des statistiques
+        is_scheduled = is_active and not schedule.get("quick_monitoring_until") and not schedule.get("return_commute_until")
+        record_backend_stats(
+            scheduled_check=is_scheduled,
+            cancellations_count=cancelled_detected,
+            delays_count=delayed_detected,
+            alerts_sent=alerts_sent,
+        )
+
         return {
             "status": "success",
             "active_directions": dirs_to_check,
             "disrupted_detected": len(disrupted_trains),
-            "cancelled_detected": len([t for t in disrupted_trains if t.get("status_code") == "CANCELLED"]),
-            "delayed_detected": len([t for t in disrupted_trains if t.get("status_code") == "DELAYED"]),
+            "cancelled_detected": cancelled_detected,
+            "delayed_detected": delayed_detected,
             "total_departures": len(all_deps),
             "alerts_sent": alerts_sent,
             "already_notified": skipped_already_notified,
@@ -176,12 +192,19 @@ def check_trains_http(request: Request):
         duration = int(request.args.get("duration", body.get("duration", body.get("duration_minutes", 60))))
         direction = str(request.args.get("direction", body.get("direction", "AUTO")))
         notify_delays = request.args.get("notify_delays", str(body.get("notify_delays", True))).lower() in ("true", "1", "yes")
+        source = str(request.args.get("source", body.get("source", "app")))
         updated = trigger_quick_monitoring(duration_minutes=duration, direction=direction, notify_delays=notify_delays)
+        record_manual_surveillance_stat(source=source)
         return jsonify({
             "status": "success",
             "message": f"Surveillance ponctuelle ({direction}) activée pour {duration} min",
             "config": updated,
         }), 200
+
+    # Endpoint pour consulter les statistiques : GET ?action=stats ou path /stats
+    if request.method == "GET" and (action == "stats" or request.path.endswith("/stats")):
+        stats = get_stats_summary()
+        return jsonify({"status": "success", "stats": stats}), 200
 
     # 4. Endpoint pour annuler la surveillance ponctuelle
     if action in ("cancel_quick", "stop_quick") or request.path.endswith("/cancel-quick"):
@@ -215,8 +238,25 @@ def check_trains_http(request: Request):
     # 5. Endpoint pour consulter tous les départs : GET ?action=departures ou path /departures
     if request.method == "GET" and (action == "departures" or request.path.endswith("/departures")):
         fresh = request.args.get("fresh", "").lower() in ("true", "1", "yes")
+        force = request.args.get("force", "").lower() in ("true", "1", "yes")
         live = get_live_departures()
-        if fresh or not live.get("departures"):
+
+        # Calcul de l'âge du cache existant
+        now = datetime.now(timezone.utc)
+        is_stale = True
+        updated_at_str = live.get("updated_at")
+        age_seconds = None
+        if updated_at_str:
+            try:
+                updated_at_dt = datetime.fromisoformat(updated_at_str.replace("Z", "+00:00"))
+                age_seconds = (now - updated_at_dt).total_seconds()
+                is_stale = (age_seconds > DEPARTURES_CACHE_TTL_SECONDS)
+            except Exception as e:
+                logger.warning(f"Erreur calcul âge cache départs ({updated_at_str}): {e}")
+                is_stale = True
+
+        # Déclenche l'appel PRIM uniquement si les données sont périmées, absentes ou explicitement forcées
+        if is_stale or fresh or force or not live.get("departures"):
             try:
                 raw_data = fetch_stop_monitoring()
                 deps = extract_all_departures(raw_data)
@@ -225,11 +265,29 @@ def check_trains_http(request: Request):
                     "status": "success",
                     "stop_name": "Meudon",
                     "departures": deps,
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": now.isoformat(),
+                    "cached": False,
+                    "cache_age_seconds": 0,
                 }
+                logger.info(
+                    f"Consultation ponctuelle : {len(deps)} départs récupérés depuis l'API PRIM (fraîcheur renouvelée)."
+                )
             except Exception as e:
-                logger.error(f"Erreur récupération des départs : {e}")
+                logger.error(f"Erreur récupération des départs depuis PRIM : {e}")
+                # En cas d'erreur de l'API PRIM, retourner le cache existant s'il n'est pas vide
+                if live.get("departures"):
+                    live["cached"] = True
+                    live["cache_age_seconds"] = int(age_seconds) if age_seconds is not None else -1
+                    live["warning"] = f"Échec rafraîchissement temps réel ({e}), données en cache renvoyées."
+                    return jsonify(live), 200
                 return jsonify({"status": "error", "message": str(e), "departures": []}), 500
+        else:
+            live["cached"] = True
+            live["cache_age_seconds"] = int(age_seconds) if age_seconds is not None else 0
+            logger.info(
+                f"Consultation ponctuelle : départs servis depuis le cache (âge: {int(age_seconds)}s < {DEPARTURES_CACHE_TTL_SECONDS}s, 0 appel PRIM)."
+            )
+
         return jsonify(live), 200
 
     # 6. Cycle régulier de surveillance des trains

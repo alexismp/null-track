@@ -26,6 +26,12 @@ Il combine un backend serverless sur Google Cloud, une application Android moder
   - Jours actifs configurables (lundi au vendredi par défaut).
   - Mode Pause / Veille (Snooze temporaire ou pour le reste de la journée).
 - ⏱️ **Notifications Push FCM** : Alertes reçues en temps réel via Firebase Cloud Messaging lors d'incidents, avec sonnerie prioritaire et vibration.
+- 🔍 **Consultation ponctuelle à la demande (On-Demand)** :
+  - **Passerelle sécurisée** : L'application mobile n'appelle jamais l'API PRIM en direct mais passe par le backend proxy (`GET /departures`).
+  - **Double niveau de cache TTL** : Cache serveur de 90 secondes (`DEPARTURES_CACHE_TTL_SECONDS = 90`) et throttle local client de 60 secondes pour préserver les quotas PRIM.
+  - **Zéro consommation passive** : Dès que l'application est fermée hors heures de surveillance, aucun appel n'est émis.
+- 📊 **Tableau de bord de statistiques & Télémétrie** :
+  - Suivi en direct dans les paramètres de l'application : nombre de déclenchements (App vs Widget), contrôles programmés, alertes envoyées, ponctualité, et répartition des statuts HTTP de l'API PRIM (2xx, 4xx, 5xx).
 - 🛡️ **Protection des quotas API & Anti-Spam** : Déduplication stricte des trains perturbés dans Cloud Firestore et cadencement intelligent des requêtes vers l'API Île-de-France Mobilités (PRIM).
 
 ---
@@ -150,6 +156,7 @@ Les variables suivantes peuvent être définies dans `backend/.env` ou en variab
 | `EVENING_END_HOUR` / `_MINUTE` | Fin de la surveillance soir (vers Meudon) | `19`h `30` |
 | `ACTIVE_DAYS` | Jours actifs (0=Lundi, 4=Vendredi) | `0,1,2,3,4` |
 | `MIN_DELAY_MINUTES` | Retard minimum déclenchant une alerte | `5` (minutes) |
+| `DEPARTURES_CACHE_TTL_SECONDS` | Durée de mise en cache serveur des départs | `90` (secondes) |
 | `FCM_TOPIC` | Topic Firebase Cloud Messaging | `trains_meudon_montparnasse` |
 
 ---

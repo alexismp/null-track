@@ -135,8 +135,9 @@ class ScheduleRepository private constructor(private val appContext: Context) {
      * Déclenche une fenêtre de surveillance ponctuelle (Widget ou In-App).
      * @param durationMinutes Durée en minutes (défaut 60 min, paramétrable).
      * @param direction "TO_PARIS", "TO_MEUDON" ou "AUTO".
+     * @param source "app" ou "widget".
      */
-    fun triggerQuickMonitoring(durationMinutes: Int = 60, direction: String = "AUTO") {
+    fun triggerQuickMonitoring(durationMinutes: Int = 60, direction: String = "AUTO", source: String = "app") {
         val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
             add(Calendar.MINUTE, durationMinutes)
         }
@@ -154,7 +155,9 @@ class ScheduleRepository private constructor(private val appContext: Context) {
                 enabled = true
             )
         )
-        Log.i(TAG, "Surveillance ponctuelle activée ($direction) pour ${durationMinutes}m jusqu'à $untilIso")
+        // Enregistrement des statistiques
+        StatsRepository.getInstance(appContext).recordManualSurveillance(source, direction, durationMinutes)
+        Log.i(TAG, "Surveillance ponctuelle activée ($direction, source: $source) pour ${durationMinutes}m jusqu'à $untilIso")
     }
 
     /**

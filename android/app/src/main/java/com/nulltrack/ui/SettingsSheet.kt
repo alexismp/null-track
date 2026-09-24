@@ -16,13 +16,16 @@
 
 package com.nulltrack.ui
 
+import android.app.TimePickerDialog
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -38,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,12 +60,13 @@ fun SettingsSheet(
     isSubscribed: Boolean = true,
     onDismiss: () -> Unit,
     onSaveSchedule: (ScheduleConfig) -> Unit,
-    onPauseHours: (Int) -> Unit,
-    onPauseToday: () -> Unit,
-    onResumeNow: () -> Unit,
+    onPauseHours: (Int) -> Unit = {},
+    onPauseToday: () -> Unit = {},
+    onResumeNow: () -> Unit = {},
     onTestAlertClick: () -> Unit = {},
     onClearHistoryClick: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     var enabled by remember(schedule) { mutableStateOf(schedule.enabled) }
 
     // Plage Matin (Meudon ➔ Paris)
@@ -85,7 +90,23 @@ fun SettingsSheet(
 
     var showHistorySection by remember { mutableStateOf(false) }
 
-    val daysOfWeek = listOf("Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim")
+    val dayLetters = listOf("L", "M", "M", "J", "V", "S", "D")
+
+    fun showNativeTimePicker(
+        initialHour: Int,
+        initialMinute: Int,
+        onTimeSelected: (Int, Int) -> Unit
+    ) {
+        TimePickerDialog(
+            context,
+            { _, hour, minute ->
+                onTimeSelected(hour, minute)
+            },
+            initialHour,
+            initialMinute,
+            true // Format 24h standard
+        ).show()
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -125,7 +146,7 @@ fun SettingsSheet(
                 }
             }
 
-            Divider(modifier = Modifier.padding(vertical = 14.dp), color = Color(0xFFEEEEEE))
+            HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp), color = Color(0xFFEEEEEE))
 
             // ==========================================
             // 1. SURVEILLANCE PROGRAMMÉE
@@ -191,39 +212,10 @@ fun SettingsSheet(
                             )
                         )
                     }
-                }
-            }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // ==========================================
-            // 2. MISE EN VEILLE TEMPORAIRE (SNOOZE)
-            // ==========================================
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (schedule.isPaused()) Color(0xFFFFF3E0) else BackgroundLight
-                )
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                    // Si actuellement en pause, proposer la reprise directe
                     if (schedule.isPaused()) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.PauseCircle,
-                                contentDescription = null,
-                                tint = Color(0xFFE65100),
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = "En pause jusqu'à ${schedule.getPausedRemainingText() ?: ""}",
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFE65100),
-                                fontSize = 15.sp
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
                         Button(
                             onClick = onResumeNow,
                             colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen),
@@ -233,44 +225,7 @@ fun SettingsSheet(
                         ) {
                             Icon(imageVector = Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Reprendre la surveillance", fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        }
-                    } else {
-                        Text(
-                            text = "⏸️ Mettre en pause temporaire (Ne pas déranger) :",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 15.sp,
-                            color = TextPrimary
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = { onPauseHours(1) },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(vertical = 8.dp)
-                            ) {
-                                Text("1 heure", fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                            }
-                            OutlinedButton(
-                                onClick = { onPauseHours(3) },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(vertical = 8.dp)
-                            ) {
-                                Text("3 heures", fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                            }
-                            OutlinedButton(
-                                onClick = onPauseToday,
-                                modifier = Modifier.weight(1.3f),
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(vertical = 8.dp)
-                            ) {
-                                Text("Aujourd'hui", fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                            }
+                            Text("Reprendre la surveillance maintenant", fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -279,43 +234,87 @@ fun SettingsSheet(
             Spacer(modifier = Modifier.height(18.dp))
 
             // ==========================================
-            // 3. JOURS ACTIFS
+            // 2. JOURS SURVEILLÉS (Style natif Android / Réveil)
             // ==========================================
             Text(
-                text = "📅 Jours surveillés (aucun appel API les autres jours) :",
+                text = "📅 Jours surveillés :",
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 15.sp,
                 color = TextPrimary
             )
-            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Aucun appel API n'est effectué les jours non sélectionnés",
+                fontSize = 13.sp,
+                color = TextSecondary,
+                modifier = Modifier.padding(bottom = 10.dp)
+            )
+
+            // Rangée de 7 boutons circulaires équilibrés
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                daysOfWeek.forEachIndexed { index, label ->
+                dayLetters.forEachIndexed { index, letter ->
                     val isSelected = activeDays.contains(index)
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = {
-                            activeDays = if (isSelected) {
-                                activeDays.filter { it != index }
-                            } else {
-                                (activeDays + index).sorted()
-                            }
-                        },
-                        label = { Text(label, fontSize = 14.sp, fontWeight = FontWeight.Medium) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = TransilienN,
-                            selectedLabelColor = Color.White
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .aspectRatio(1f)
+                            .clip(CircleShape)
+                            .background(if (isSelected) TransilienN else Color(0xFFF1F5F9))
+                            .clickable {
+                                activeDays = if (isSelected) {
+                                    activeDays.filter { it != index }
+                                } else {
+                                    (activeDays + index).sorted()
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = letter,
+                            color = if (isSelected) Color.White else TextPrimary,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            fontSize = 15.sp
                         )
-                    )
+                    }
                 }
+            }
+
+            // Raccourcis pratiques (Semaine / Tous les jours)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val isWeekdays = activeDays == listOf(0, 1, 2, 3, 4)
+                val isAllDays = activeDays == listOf(0, 1, 2, 3, 4, 5, 6)
+
+                FilterChip(
+                    selected = isWeekdays,
+                    onClick = { activeDays = listOf(0, 1, 2, 3, 4) },
+                    label = { Text("Semaine (Lun-Ven)", fontSize = 12.sp) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = TransilienN.copy(alpha = 0.15f),
+                        selectedLabelColor = TransilienN
+                    )
+                )
+                FilterChip(
+                    selected = isAllDays,
+                    onClick = { activeDays = listOf(0, 1, 2, 3, 4, 5, 6) },
+                    label = { Text("Tous les jours", fontSize = 12.sp) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = TransilienN.copy(alpha = 0.15f),
+                        selectedLabelColor = TransilienN
+                    )
+                )
             }
 
             Spacer(modifier = Modifier.height(18.dp))
 
             // ==========================================
-            // 4. PLAGE MATIN
+            // 3. PLAGE MATIN (Sélecteur d'horaire natif)
             // ==========================================
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -329,7 +328,7 @@ fun SettingsSheet(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "🌅 Matin : Meudon ➔ Paris-Montparnasse",
+                            text = "🌅 Matin : Meudon ➔ Paris",
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
                             color = TextPrimary
@@ -342,31 +341,49 @@ fun SettingsSheet(
                     }
 
                     if (morningEnabled) {
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Début :", fontSize = 14.sp, color = TextSecondary)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    TimeStepper(value = morningStartHour, min = 5, max = 13, label = "h") { morningStartHour = it }
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    TimeStepper(value = morningStartMinute, min = 0, max = 55, step = 5, label = "m") { morningStartMinute = it }
+                            TimePickerCard(
+                                label = "Début",
+                                hour = morningStartHour,
+                                minute = morningStartMinute,
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    showNativeTimePicker(morningStartHour, morningStartMinute) { h, m ->
+                                        morningStartHour = h
+                                        morningStartMinute = m
+                                        // Ajuster la fin si nécessaire
+                                        if (morningEndHour < h || (morningEndHour == h && morningEndMinute < m)) {
+                                            morningEndHour = (h + 1).coerceAtMost(23)
+                                            morningEndMinute = m
+                                        }
+                                    }
                                 }
-                            }
+                            )
 
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Fin :", fontSize = 14.sp, color = TextSecondary)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    TimeStepper(value = morningEndHour, min = morningStartHour, max = 14, label = "h") { morningEndHour = it }
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    TimeStepper(value = morningEndMinute, min = 0, max = 55, step = 5, label = "m") { morningEndMinute = it }
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = null,
+                                tint = TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+
+                            TimePickerCard(
+                                label = "Fin",
+                                hour = morningEndHour,
+                                minute = morningEndMinute,
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    showNativeTimePicker(morningEndHour, morningEndMinute) { h, m ->
+                                        morningEndHour = h
+                                        morningEndMinute = m
+                                    }
                                 }
-                            }
+                            )
                         }
                     }
                 }
@@ -375,7 +392,7 @@ fun SettingsSheet(
             Spacer(modifier = Modifier.height(14.dp))
 
             // ==========================================
-            // 5. PLAGE SOIR
+            // 4. PLAGE SOIR (Sélecteur d'horaire natif)
             // ==========================================
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -389,7 +406,7 @@ fun SettingsSheet(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "🌆 Soir : Paris-Montparnasse ➔ Meudon",
+                            text = "🌆 Soir : Paris ➔ Meudon",
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
                             color = TextPrimary
@@ -402,31 +419,48 @@ fun SettingsSheet(
                     }
 
                     if (eveningEnabled) {
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Début :", fontSize = 14.sp, color = TextSecondary)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    TimeStepper(value = eveningStartHour, min = 15, max = 22, label = "h") { eveningStartHour = it }
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    TimeStepper(value = eveningStartMinute, min = 0, max = 55, step = 5, label = "m") { eveningStartMinute = it }
+                            TimePickerCard(
+                                label = "Début",
+                                hour = eveningStartHour,
+                                minute = eveningStartMinute,
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    showNativeTimePicker(eveningStartHour, eveningStartMinute) { h, m ->
+                                        eveningStartHour = h
+                                        eveningStartMinute = m
+                                        if (eveningEndHour < h || (eveningEndHour == h && eveningEndMinute < m)) {
+                                            eveningEndHour = (h + 1).coerceAtMost(23)
+                                            eveningEndMinute = m
+                                        }
+                                    }
                                 }
-                            }
+                            )
 
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Fin :", fontSize = 14.sp, color = TextSecondary)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    TimeStepper(value = eveningEndHour, min = eveningStartHour, max = 23, label = "h") { eveningEndHour = it }
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    TimeStepper(value = eveningEndMinute, min = 0, max = 55, step = 5, label = "m") { eveningEndMinute = it }
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = null,
+                                tint = TextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+
+                            TimePickerCard(
+                                label = "Fin",
+                                hour = eveningEndHour,
+                                minute = eveningEndMinute,
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    showNativeTimePicker(eveningEndHour, eveningEndMinute) { h, m ->
+                                        eveningEndHour = h
+                                        eveningEndMinute = m
+                                    }
                                 }
-                            }
+                            )
                         }
                     }
                 }
@@ -435,7 +469,7 @@ fun SettingsSheet(
             Spacer(modifier = Modifier.height(18.dp))
 
             // ==========================================
-            // 6. PARAMÈTRES DU WIDGET & SURVEILLANCE RAPIDE
+            // 5. PARAMÈTRES DU WIDGET & SURVEILLANCE RAPIDE
             // ==========================================
             Text(
                 text = "⏱️ Durée par défaut de la surveillance ponctuelle :",
@@ -465,7 +499,7 @@ fun SettingsSheet(
             Spacer(modifier = Modifier.height(18.dp))
 
             // ==========================================
-            // 7. NOTIFICATIONS DES RETARDS
+            // 6. NOTIFICATIONS DES RETARDS
             // ==========================================
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -504,7 +538,7 @@ fun SettingsSheet(
             Spacer(modifier = Modifier.height(18.dp))
 
             // ==========================================
-            // 8. FRÉQUENCE DES VÉRIFICATIONS
+            // 7. FRÉQUENCE DES VÉRIFICATIONS
             // ==========================================
             Text(
                 text = "📡 Fréquence des vérifications :",
@@ -541,7 +575,7 @@ fun SettingsSheet(
             Spacer(modifier = Modifier.height(22.dp))
 
             // ==========================================
-            // 9. TEST D'ALERTE PUSH (DÉPLACÉ HORS HOME SCREEN)
+            // 8. TEST D'ALERTE PUSH
             // ==========================================
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -593,7 +627,7 @@ fun SettingsSheet(
             Spacer(modifier = Modifier.height(20.dp))
 
             // ==========================================
-            // 10. HISTORIQUE DES ALERTES & NETTOYAGE
+            // 9. HISTORIQUE DES ALERTES & NETTOYAGE
             // ==========================================
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -691,6 +725,54 @@ fun SettingsSheet(
     }
 }
 
+/**
+ * Carte de sélection horaire élégante qui ouvre le TimePickerDialog natif Android.
+ */
+@Composable
+fun TimePickerCard(
+    label: String,
+    hour: Int,
+    minute: Int,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = SurfaceLight,
+        tonalElevation = 1.dp,
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text(
+                    text = label,
+                    fontSize = 11.sp,
+                    color = TextSecondary,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = String.format(Locale.FRANCE, "%02d:%02d", hour, minute),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimary
+                )
+            }
+            Icon(
+                imageVector = Icons.Default.Schedule,
+                contentDescription = "Modifier l'heure",
+                tint = TransilienN,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+    }
+}
+
 @Composable
 fun AlertCard(alert: TrainAlert) {
     val timeFormat = SimpleDateFormat("dd/MM à HH:mm", Locale.FRANCE)
@@ -773,45 +855,6 @@ fun AlertCard(alert: TrainAlert) {
                     fontSize = 12.sp,
                     color = TextSecondary
                 )
-            }
-        }
-    }
-}
-
-@Composable
-fun TimeStepper(
-    value: Int,
-    min: Int,
-    max: Int,
-    step: Int = 1,
-    label: String,
-    onValueChange: (Int) -> Unit
-) {
-    Card(
-        shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = SurfaceLight)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-        ) {
-            IconButton(
-                onClick = { if (value - step >= min) onValueChange(value - step) },
-                modifier = Modifier.size(30.dp)
-            ) {
-                Text("-", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            }
-            Text(
-                text = String.format(Locale.FRANCE, "%02d%s", value, label),
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 15.sp,
-                modifier = Modifier.padding(horizontal = 6.dp)
-            )
-            IconButton(
-                onClick = { if (value + step <= max) onValueChange(value + step) },
-                modifier = Modifier.size(30.dp)
-            ) {
-                Text("+", fontWeight = FontWeight.Bold, fontSize = 18.sp)
             }
         }
     }

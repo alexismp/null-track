@@ -1,8 +1,8 @@
 # 🚆 Null-Track — Surveillance & Alertes Transilien Ligne N
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20Cloud%20Run-brightgreen.svg)]()
-[![Transilien](https://img.shields.io/badge/Transilien-Ligne%20N-00A5DE.svg)]()
+![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20Cloud%20Run-brightgreen.svg)
+![Transilien](https://img.shields.io/badge/Transilien-Ligne%20N-00A5DE.svg)
 
 **Null-Track** est un système intelligent et temps réel d'alerte et de surveillance pour les usagers de la **Ligne N du Transilien** (Gare de Meudon ⇄ Paris-Montparnasse / Banlieue).
 
@@ -14,7 +14,7 @@ Il combine un backend serverless sur Google Cloud, une application Android moder
 
 - 📱 **Widget Android compact (2x1)** :
   - **Bouton d'action 1 clic** : Démarre ou arrête la surveillance à la demande (durée paramétrable, 1h par défaut).
-  - **Alerte visuelle instantanée** : Le widget passe automatiquement au **ROUGE** (`🚨 PERTURBATION`) dès qu'une suppression ou un retard significatif ($\ge 5$ min) est détecté sur les prochains départs.
+  - **Alerte visuelle instantanée** : Le widget passe automatiquement au **ROUGE** (`🚨 PERTURBATION`) dès qu'une suppression ou un retard significatif (≥ 5 min) est détecté sur les prochains départs.
   - **Raccourci direct** : Un tap sur le widget ouvre instantanément l'application pour afficher l'ensemble des détails du trafic.
   - **Synchronisation continue** : L'état de surveillance et les données de trafic sont toujours synchronisés entre le widget et l'application.
 - 📍 **Détection intelligente de la localisation** :
@@ -33,18 +33,18 @@ Il combine un backend serverless sur Google Cloud, une application Android moder
 ## 🏗️ Architecture technique
 
 ```mermaid
-graph TD
-    WIDGET["Widget Android (2x1)<br/>• Bouton Démarrer/Arrêter<br/>• Passe au ROUGE si incident"] -->|Synchro état & actions| FS[("Cloud Firestore")]
+flowchart TD
+    WIDGET["Widget Android (2x1)<br/>• Bouton Démarrer / Arrêter<br/>• Passe au ROUGE si incident"] -->|Actions et état| FS[("Cloud Firestore")]
     CS["Cloud Scheduler<br/>(Toutes les 3 min)"] -->|Déclencheur HTTP| CR["Backend Python<br/>(Cloud Run Gen2)"]
-    CR -->|1. Vérifie fenêtres & snooze| FS
-    CR -->|2. Requête SIRI Lite (si actif)| PRIM["API IDFM PRIM<br/>(Données temps réel SNCF / IDFM)"]
+    CR -->|1. Vérifie fenêtres et snooze| FS
+    CR -->|2. Requête SIRI Lite si actif| PRIM["API IDFM PRIM<br/>(Données temps réel)"]
     PRIM -->|3. Prochains passages| CR
     CR -->|4. Sauvegarde départs temps réel| FS
     CR -->|5. Déduplication anti-spam| FS
     CR -->|6. Notification si incident| FCM["Firebase Cloud Messaging<br/>(Topic: trains_meudon_montparnasse)"]
     FCM -->|Push alerte instantanée| ANDROID["Application Android<br/>(Jetpack Compose)"]
-    ANDROID -->|Lecture départs & réglages| FS
-    ANDROID <-->|Synchro bidirectionnelle| WIDGET
+    ANDROID -->|Lecture départs et réglages| FS
+    ANDROID ---|Synchronisation locale| WIDGET
 ```
 
 ---
@@ -156,4 +156,4 @@ Les variables suivantes peuvent être définies dans `backend/.env` ou en variab
 
 ## 📄 Licence
 
-Ce projet est sous licence **Apache 2.0**. Consultez le fichier [LICENSE](file:///Users/alexismp/dev/null-track/LICENSE) pour plus d'informations.
+Ce projet est sous licence **Apache 2.0**. Consultez le fichier [LICENSE](LICENSE) pour plus d'informations.

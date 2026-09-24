@@ -126,57 +126,34 @@ class NullTrackWidgetProvider : AppWidgetProvider() {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
 
-                // 1. État visuel du widget : passe au ROUGE si perturbation détectée
+                // 1. État visuel et message trafic (minimaliste)
                 if (hasDisruption) {
                     views.setInt(R.id.widget_root, "setBackgroundResource", R.drawable.widget_background_alert)
-                    views.setTextViewText(R.id.widget_status_badge, "🚨 PERTURBATION")
-                    views.setTextColor(R.id.widget_status_badge, Color.parseColor("#FEE2E2"))
                     views.setTextViewText(
                         R.id.widget_detail_text,
-                        disruptionSummary ?: "Train annulé ou retardé"
+                        disruptionSummary ?: "🚨 Incident signalé"
                     )
                     views.setTextColor(R.id.widget_detail_text, Color.parseColor("#FFFFFF"))
                     views.setInt(R.id.widget_open_app_button, "setBackgroundResource", R.drawable.widget_button_alert)
                 } else {
                     views.setInt(R.id.widget_root, "setBackgroundResource", R.drawable.widget_background)
+                    views.setTextViewText(R.id.widget_detail_text, "Trafic normal")
+                    views.setTextColor(R.id.widget_detail_text, Color.parseColor("#94A3B8"))
                     views.setInt(R.id.widget_open_app_button, "setBackgroundResource", R.drawable.widget_button_inactive)
-
-                    if (isActive) {
-                        views.setTextViewText(R.id.widget_status_badge, "🟢 Active")
-                        views.setTextColor(R.id.widget_status_badge, Color.parseColor("#4CAF50"))
-
-                        val remaining = schedule.getActiveRemainingText()
-                        views.setTextViewText(
-                            R.id.widget_detail_text,
-                            if (remaining != null) "Surveillance active (fin $remaining)" else "Surveillance active • À l'heure"
-                        )
-                        views.setTextColor(R.id.widget_detail_text, Color.parseColor("#94A3B8"))
-                    } else {
-                        views.setTextViewText(R.id.widget_status_badge, "⏸️ Inactive")
-                        views.setTextColor(R.id.widget_status_badge, Color.parseColor("#94A3B8"))
-
-                        val durMinutes = schedule.quickMonitoringDurationMinutes
-                        val durLabel = if (durMinutes >= 60) "${durMinutes / 60}h" else "${durMinutes}m"
-                        views.setTextViewText(
-                            R.id.widget_detail_text,
-                            "Trafic normal • Toucher pour surveiller ($durLabel)"
-                        )
-                        views.setTextColor(R.id.widget_detail_text, Color.parseColor("#94A3B8"))
-                    }
                 }
 
-                // 2. Bouton d'action Démarrer ou Arrêter la surveillance
+                // 2. Bouton d'action et d'état de surveillance (porte l'état lui-même)
                 if (isActive) {
-                    views.setTextViewText(R.id.widget_action_button, "⏹️ Arrêter")
+                    val remaining = schedule.getActiveRemainingText()
+                    val label = if (remaining != null) "⏹️ Surveillance active ($remaining)" else "⏹️ Surveillance active"
+                    views.setTextViewText(R.id.widget_action_button, label)
                     views.setInt(
                         R.id.widget_action_button,
                         "setBackgroundResource",
                         R.drawable.widget_button_active
                     )
                 } else {
-                    val durMinutes = schedule.quickMonitoringDurationMinutes
-                    val durLabel = if (durMinutes >= 60) "${durMinutes / 60}h" else "${durMinutes}m"
-                    views.setTextViewText(R.id.widget_action_button, "▶️ Démarrer ($durLabel)")
+                    views.setTextViewText(R.id.widget_action_button, "▶️ Démarrer la surveillance")
                     views.setInt(
                         R.id.widget_action_button,
                         "setBackgroundResource",
@@ -195,12 +172,11 @@ class NullTrackWidgetProvider : AppWidgetProvider() {
                 )
                 views.setOnClickPendingIntent(R.id.widget_action_button, togglePendingIntent)
 
-                // 3. Clics pour ouvrir l'application (en-tête, fond, détails, bouton départs)
+                // 3. Clics pour ouvrir l'application (Détails, logo, texte, fond)
                 views.setOnClickPendingIntent(R.id.widget_open_app_button, appPendingIntent)
                 views.setOnClickPendingIntent(R.id.widget_header, appPendingIntent)
-                views.setOnClickPendingIntent(R.id.widget_title, appPendingIntent)
+                views.setOnClickPendingIntent(R.id.widget_app_logo, appPendingIntent)
                 views.setOnClickPendingIntent(R.id.widget_detail_text, appPendingIntent)
-                views.setOnClickPendingIntent(R.id.widget_status_badge, appPendingIntent)
                 views.setOnClickPendingIntent(R.id.widget_root, appPendingIntent)
 
                 appWidgetManager.updateAppWidget(appWidgetId, views)

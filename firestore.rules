@@ -12,6 +12,14 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Statistiques d'usage globales et journalières
+    match /stats/{document=**} {
+      allow read, write: if true;
+    }
+    match /stats_daily/{document=**} {
+      allow read, write: if true;
+    }
+
     // Par défaut, accès restreint aux autres collections
     match /{document=**} {
       allow read, write: if false;

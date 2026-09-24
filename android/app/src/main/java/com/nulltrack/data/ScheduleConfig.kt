@@ -68,6 +68,42 @@ data class ScheduleConfig(
     fun isReturnCommuteActive(): Boolean = isQuickMonitoringActive()
 
     /**
+     * Indique si l'heure actuelle correspond à un créneau programmé (matin ou soir).
+     */
+    fun isWindowActiveNow(): Boolean {
+        if (!enabled || isPaused()) return false
+
+        val cal = java.util.Calendar.getInstance(TimeZone.getTimeZone("Europe/Paris"))
+        val dayOfWeek = (cal.get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7
+        if (dayOfWeek !in activeDays) return false
+
+        val currentMinutes = cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE)
+
+        if (morningEnabled) {
+            val mStart = morningStartHour * 60 + morningStartMinute
+            val mEnd = morningEndHour * 60 + morningEndMinute
+            if (currentMinutes in mStart..mEnd) return true
+        }
+
+        if (eveningEnabled) {
+            val eStart = eveningStartHour * 60 + eveningStartMinute
+            val eEnd = eveningEndHour * 60 + eveningEndMinute
+            if (currentMinutes in eStart..eEnd) return true
+        }
+
+        return false
+    }
+
+    /**
+     * Indique si la surveillance est active à cet instant précis (ponctuelle ou programmée).
+     */
+    fun isMonitoringActiveNow(): Boolean {
+        if (!enabled || isPaused()) return false
+        if (isQuickMonitoringActive()) return true
+        return isWindowActiveNow()
+    }
+
+    /**
      * Retourne l'heure d'expiration de la surveillance ponctuelle (ex: 18:45).
      */
     fun getQuickMonitoringRemainingText(): String? {

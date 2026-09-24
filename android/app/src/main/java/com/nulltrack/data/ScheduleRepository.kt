@@ -175,6 +175,11 @@ class ScheduleRepository private constructor(private val appContext: Context) {
 
     private fun notifyWidgetUpdate() {
         try {
+            com.nulltrack.widget.NullTrackWidgetProvider.updateAllWidgets(appContext)
+        } catch (e: Exception) {
+            // ignore
+        }
+        try {
             val intent = Intent(ACTION_WIDGET_REFRESH).apply {
                 setPackage(appContext.packageName)
             }

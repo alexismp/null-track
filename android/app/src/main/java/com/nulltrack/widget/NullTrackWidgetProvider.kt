@@ -11,7 +11,6 @@ import android.util.Log
 import android.widget.RemoteViews
 import com.nulltrack.MainActivity
 import com.nulltrack.R
-import com.nulltrack.data.AlertRepository
 import com.nulltrack.data.DeparturesRepository
 import com.nulltrack.data.ScheduleConfig
 import com.nulltrack.data.ScheduleRepository
@@ -41,11 +40,17 @@ class NullTrackWidgetProvider : AppWidgetProvider() {
                 val repository = ScheduleRepository.getInstance(context)
                 val current = repository.schedule.value
 
-                if (current.isQuickMonitoringActive()) {
+                if (current.isMonitoringActiveNow()) {
                     // Arrêt de la surveillance
                     repository.cancelQuickMonitoring()
+                    if (current.isWindowActiveNow()) {
+                        repository.pauseForToday()
+                    }
                 } else {
-                    // Activation intelligente selon la localisation
+                    // Reprise et activation de la surveillance
+                    if (current.isPaused()) {
+                        repository.resumeNow()
+                    }
                     val detection = LocationHelper.detectCommuteDirection(context)
                     val duration = current.quickMonitoringDurationMinutes
                     repository.triggerQuickMonitoring(
@@ -54,6 +59,7 @@ class NullTrackWidgetProvider : AppWidgetProvider() {
                     )
                 }
 
+                DeparturesRepository.getInstance(context).refresh()
                 updateAllWidgets(context)
             }
             ACTION_REFRESH, AppWidgetManager.ACTION_APPWIDGET_UPDATE -> {
@@ -86,12 +92,11 @@ class NullTrackWidgetProvider : AppWidgetProvider() {
         ) {
             try {
                 val views = RemoteViews(context.packageName, R.layout.widget_nulltrack)
-                val isActive = schedule.isQuickMonitoringActive()
+                val isActive = schedule.isMonitoringActiveNow()
 
                 val departuresRepo = DeparturesRepository.getInstance(context)
-                val alertRepo = AlertRepository.getInstance(context)
-                val hasDisruption = departuresRepo.hasDisruptions() || alertRepo.hasRecentAlerts()
-                val disruptionSummary = departuresRepo.getDisruptionSummary() ?: alertRepo.getLatestAlertSummary()
+                val hasDisruption = departuresRepo.hasDisruptions(schedule.minDelayMinutes)
+                val disruptionSummary = departuresRepo.getDisruptionSummary(schedule.minDelayMinutes)
 
                 // Intent universel pour ouvrir l'application sur le tableau des départs
                 val appIntent = Intent(context, MainActivity::class.java).apply {
@@ -138,7 +143,7 @@ class NullTrackWidgetProvider : AppWidgetProvider() {
                         val durLabel = if (durMinutes >= 60) "${durMinutes / 60}h" else "${durMinutes}m"
                         views.setTextViewText(
                             R.id.widget_detail_text,
-                            "Toucher pour surveiller ($durLabel)"
+                            "Trafic normal • Toucher pour surveiller ($durLabel)"
                         )
                         views.setTextColor(R.id.widget_detail_text, Color.parseColor("#94A3B8"))
                     }
@@ -179,6 +184,8 @@ class NullTrackWidgetProvider : AppWidgetProvider() {
                 views.setOnClickPendingIntent(R.id.widget_header, appPendingIntent)
                 views.setOnClickPendingIntent(R.id.widget_title, appPendingIntent)
                 views.setOnClickPendingIntent(R.id.widget_detail_text, appPendingIntent)
+                views.setOnClickPendingIntent(R.id.widget_status_badge, appPendingIntent)
+                views.setOnClickPendingIntent(R.id.widget_root, appPendingIntent)
 
                 appWidgetManager.updateAppWidget(appWidgetId, views)
                 Log.d(TAG, "Widget $appWidgetId mis à jour (actif=$isActive, perturbation=$hasDisruption)")

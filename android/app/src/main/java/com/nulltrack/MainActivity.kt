@@ -3,7 +3,9 @@ package com.nulltrack
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.RingtoneManager
 import android.os.Build
@@ -16,23 +18,20 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.google.firebase.messaging.FirebaseMessaging
 import com.nulltrack.data.AlertRepository
-import com.nulltrack.data.TrainAlert
-import com.nulltrack.service.NullTrackMessagingService
-import com.nulltrack.ui.HomeScreen
-import com.nulltrack.ui.theme.NullTrackTheme
-
-import android.app.PendingIntent
-import android.content.Intent
-import androidx.compose.runtime.remember
 import com.nulltrack.data.DeparturesRepository
 import com.nulltrack.data.ScheduleRepository
-import com.nulltrack.ui.DeparturesSheet
+import com.nulltrack.data.TrainAlert
+import com.nulltrack.location.LocationHelper
+import com.nulltrack.service.NullTrackMessagingService
+import com.nulltrack.ui.HomeScreen
 import com.nulltrack.ui.SettingsSheet
+import com.nulltrack.ui.theme.NullTrackTheme
 
 class MainActivity : ComponentActivity() {
 
@@ -40,7 +39,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var scheduleRepository: ScheduleRepository
     private lateinit var departuresRepository: DeparturesRepository
     private var isSubscribedToTopic by mutableStateOf(false)
-    private var shouldOpenDeparturesOnLaunch by mutableStateOf(false)
 
     // Demande des permissions Notifications & Localisation
     private val requestPermissionsLauncher = registerForActivityResult(
@@ -69,10 +67,7 @@ class MainActivity : ComponentActivity() {
         scheduleRepository = ScheduleRepository.getInstance(applicationContext)
         departuresRepository = DeparturesRepository.getInstance(applicationContext)
 
-        if (intent?.getBooleanExtra(EXTRA_OPEN_DEPARTURES, false) == true) {
-            shouldOpenDeparturesOnLaunch = true
-        }
-
+        handleOpenDeparturesIntent(intent)
         checkAppPermissions()
         subscribeToFCMTopic()
 
@@ -85,18 +80,19 @@ class MainActivity : ComponentActivity() {
                 val isDeparturesLoading by departuresRepository.isLoading.collectAsState()
 
                 var showSettingsSheet by remember { mutableStateOf(false) }
-                var showDeparturesSheet by remember { mutableStateOf(shouldOpenDeparturesOnLaunch) }
 
                 HomeScreen(
-                    alerts = alerts,
-                    isSubscribed = isSubscribedToTopic,
                     schedule = schedule,
-                    onTestAlertClick = { sendLocalTestAlert() },
-                    onClearHistoryClick = { repository.clearAlerts() },
+                    departures = departures,
+                    lastUpdatedDepartures = lastUpdatedDepartures,
+                    isDeparturesLoading = isDeparturesLoading,
                     onSettingsClick = { showSettingsSheet = true },
-                    onViewDeparturesClick = { showDeparturesSheet = true },
+                    onRefreshDepartures = { departuresRepository.refresh() },
                     onTriggerQuickMonitoring = { duration, direction ->
+                        scheduleRepository.resumeNow()
                         scheduleRepository.triggerQuickMonitoring(duration, direction)
+                        departuresRepository.refresh()
+                        com.nulltrack.widget.NullTrackWidgetProvider.updateAllWidgets(applicationContext)
                         val dirLabel = if (direction == "TO_PARIS") "Meudon ➔ Paris" else "Paris ➔ Meudon"
                         Toast.makeText(
                             this@MainActivity,
@@ -106,6 +102,10 @@ class MainActivity : ComponentActivity() {
                     },
                     onCancelQuickMonitoring = {
                         scheduleRepository.cancelQuickMonitoring()
+                        if (scheduleRepository.schedule.value.isWindowActiveNow()) {
+                            scheduleRepository.pauseForToday()
+                        }
+                        com.nulltrack.widget.NullTrackWidgetProvider.updateAllWidgets(applicationContext)
                         Toast.makeText(
                             this@MainActivity,
                             "Surveillance désactivée",
@@ -117,6 +117,8 @@ class MainActivity : ComponentActivity() {
                 if (showSettingsSheet) {
                     SettingsSheet(
                         schedule = schedule,
+                        alerts = alerts,
+                        isSubscribed = isSubscribedToTopic,
                         onDismiss = { showSettingsSheet = false },
                         onSaveSchedule = { newSchedule ->
                             scheduleRepository.saveConfig(newSchedule)
@@ -129,20 +131,9 @@ class MainActivity : ComponentActivity() {
                         },
                         onResumeNow = {
                             scheduleRepository.resumeNow()
-                        }
-                    )
-                }
-
-                if (showDeparturesSheet) {
-                    DeparturesSheet(
-                        departures = departures,
-                        lastUpdated = lastUpdatedDepartures,
-                        isLoading = isDeparturesLoading,
-                        onDismiss = {
-                            showDeparturesSheet = false
-                            shouldOpenDeparturesOnLaunch = false
                         },
-                        onRefresh = { departuresRepository.refresh() }
+                        onTestAlertClick = { sendLocalTestAlert() },
+                        onClearHistoryClick = { repository.clearAlerts() }
                     )
                 }
             }
@@ -152,13 +143,19 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.getBooleanExtra(EXTRA_OPEN_DEPARTURES, false)) {
-            shouldOpenDeparturesOnLaunch = true
+        handleOpenDeparturesIntent(intent)
+    }
+
+    private fun handleOpenDeparturesIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_OPEN_DEPARTURES, false) == true) {
+            departuresRepository.refresh()
+            com.nulltrack.widget.NullTrackWidgetProvider.updateAllWidgets(applicationContext)
         }
     }
 
     override fun onResume() {
         super.onResume()
+        departuresRepository.refresh()
         com.nulltrack.widget.NullTrackWidgetProvider.updateAllWidgets(applicationContext)
     }
 

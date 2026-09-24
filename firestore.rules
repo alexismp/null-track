@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Les horaires de passage en temps réel sont consultables par l'application
+    match /live_status/{document} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Les réglages de surveillance et de notification sont synchronisés par l'application
+    match /settings/{document} {
+      allow read, write: if true;
+    }
+
+    // Par défaut, accès restreint aux autres collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

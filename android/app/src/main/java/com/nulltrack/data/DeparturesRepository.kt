@@ -1,6 +1,8 @@
 package com.nulltrack.data
 
 import android.content.Context
+import android.content.Intent
+import android.content.SharedPreferences
 import android.util.Log
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
@@ -10,14 +12,22 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
-import android.content.Intent
-
 class DeparturesRepository private constructor(private val context: Context) {
+
+    private val prefs: SharedPreferences =
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val _departures = MutableStateFlow<List<TrainDeparture>>(emptyList())
     val departures: StateFlow<List<TrainDeparture>> = _departures.asStateFlow()
@@ -29,9 +39,45 @@ class DeparturesRepository private constructor(private val context: Context) {
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     private var firestoreListener: ListenerRegistration? = null
+    private val scope = CoroutineScope(Dispatchers.IO)
 
     init {
+        loadCachedDepartures()
         initFirestoreSync()
+        refresh()
+    }
+
+    private fun loadCachedDepartures() {
+        val jsonStr = prefs.getString(KEY_DEPARTURES_JSON, null)
+        val updatedStr = prefs.getString(KEY_LAST_UPDATED, null)
+        if (!jsonStr.isNullOrBlank()) {
+            try {
+                val array = JSONArray(jsonStr)
+                val list = mutableListOf<TrainDeparture>()
+                for (i in 0 until array.length()) {
+                    list.add(TrainDeparture.fromJsonObject(array.getJSONObject(i)))
+                }
+                _departures.value = list
+                _lastUpdated.value = updatedStr ?: "Mis en cache"
+                Log.d(TAG, "${list.size} départs chargés depuis le cache local.")
+            } catch (e: Exception) {
+                Log.w(TAG, "Erreur lecture cache départs: ${e.message}")
+            }
+        }
+    }
+
+    private fun saveCachedDepartures(list: List<TrainDeparture>, updatedTime: String?) {
+        try {
+            val array = JSONArray()
+            list.forEach { array.put(it.toJsonObject()) }
+            prefs.edit().apply {
+                putString(KEY_DEPARTURES_JSON, array.toString())
+                putString(KEY_LAST_UPDATED, updatedTime)
+                apply()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Erreur écriture cache départs: ${e.message}")
+        }
     }
 
     private fun initFirestoreSync() {
@@ -41,7 +87,7 @@ class DeparturesRepository private constructor(private val context: Context) {
 
             firestoreListener = docRef.addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    Log.w(TAG, "Erreur écoute départs temps réel: ${error.message}")
+                    Log.w(TAG, "Erreur écoute départs temps réel Firestore: ${error.message}")
                     return@addSnapshotListener
                 }
 
@@ -51,33 +97,25 @@ class DeparturesRepository private constructor(private val context: Context) {
                         (item as? Map<String, Any?>)?.let { TrainDeparture.fromMap(it) }
                     } ?: emptyList()
 
-                    _departures.value = parsed
-
-                    val rawUpdated = snapshot.getString("updated_at")
-                    _lastUpdated.value = formatIsoToTime(rawUpdated)
-                    Log.d(TAG, "${parsed.size} prochains départs synchronisés depuis Firestore.")
-                    context.sendBroadcast(Intent("com.nulltrack.widget.ACTION_REFRESH").setPackage(context.packageName))
-                } else {
-                    // Si aucun document distant n'existe encore, données d'exemple pour Meudon
-                    if (_departures.value.isEmpty()) {
-                        _departures.value = getFallbackDepartures()
-                        _lastUpdated.value = "Mode hors-ligne"
+                    if (parsed.isNotEmpty()) {
+                        val updated = formatIsoToTime(snapshot.getString("updated_at"))
+                        _departures.value = parsed
+                        _lastUpdated.value = updated
+                        saveCachedDepartures(parsed, updated)
+                        Log.d(TAG, "${parsed.size} départs synchronisés depuis Firestore.")
+                        notifyWidgetUpdate()
                     }
                 }
             }
         } catch (e: Exception) {
             Log.w(TAG, "Firestore non disponible pour départs temps réel: ${e.message}")
-            if (_departures.value.isEmpty()) {
-                _departures.value = getFallbackDepartures()
-                _lastUpdated.value = "Mode local"
-            }
         }
     }
 
     fun hasDisruptions(minDelayMinutes: Int = 5): Boolean {
         return _departures.value.any {
-            it.isCancelled || it.delayMinutes >= minDelayMinutes ||
-            it.status == DepartureStatus.CANCELLED || it.status == DepartureStatus.DELAYED
+            it.isCancelled || it.status == DepartureStatus.CANCELLED ||
+            it.delayMinutes >= minDelayMinutes || (it.status == DepartureStatus.DELAYED && it.delayMinutes >= minDelayMinutes)
         }
     }
 
@@ -96,26 +134,88 @@ class DeparturesRepository private constructor(private val context: Context) {
     }
 
     fun refresh() {
+        if (_isLoading.value) return
         _isLoading.value = true
+
+        scope.launch {
+            try {
+                val success = fetchFromBackend()
+                if (!success) {
+                    fetchFromFirestore()
+                }
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    private suspend fun fetchFromBackend(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val url = URL(BACKEND_DEPARTURES_URL)
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 6000
+                readTimeout = 8000
+            }
+            if (conn.responseCode == 200) {
+                val reader = BufferedReader(InputStreamReader(conn.inputStream))
+                val responseText = reader.readText()
+                reader.close()
+
+                val json = JSONObject(responseText)
+                val rawDeps = json.optJSONArray("departures")
+                if (rawDeps != null) {
+                    val list = mutableListOf<TrainDeparture>()
+                    for (i in 0 until rawDeps.length()) {
+                        val itemObj = rawDeps.getJSONObject(i)
+                        list.add(TrainDeparture.fromJsonObject(itemObj))
+                    }
+                    if (list.isNotEmpty()) {
+                        val updated = formatIsoToTime(json.optString("updated_at"))
+                        _departures.value = list
+                        _lastUpdated.value = updated
+                        saveCachedDepartures(list, updated)
+                        notifyWidgetUpdate()
+                        Log.d(TAG, "${list.size} départs rafraîchis avec succès via HTTP backend.")
+                        return@withContext true
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Échec fetch backend HTTP: ${e.message}")
+        }
+        return@withContext false
+    }
+
+    private fun fetchFromFirestore() {
         try {
             val firestore = FirebaseFirestore.getInstance()
             firestore.collection(COLLECTION_LIVE_STATUS).document(DOC_DEPARTURES).get()
                 .addOnSuccessListener { snapshot ->
-                    _isLoading.value = false
                     if (snapshot.exists()) {
                         val rawDepartures = snapshot.get("departures") as? List<*>
                         val parsed = rawDepartures?.mapNotNull { item ->
                             (item as? Map<String, Any?>)?.let { TrainDeparture.fromMap(it) }
                         } ?: emptyList()
-                        _departures.value = parsed
-                        _lastUpdated.value = formatIsoToTime(snapshot.getString("updated_at"))
+                        if (parsed.isNotEmpty()) {
+                            val updated = formatIsoToTime(snapshot.getString("updated_at"))
+                            _departures.value = parsed
+                            _lastUpdated.value = updated
+                            saveCachedDepartures(parsed, updated)
+                            notifyWidgetUpdate()
+                        }
                     }
                 }
-                .addOnFailureListener {
-                    _isLoading.value = false
-                }
         } catch (e: Exception) {
-            _isLoading.value = false
+            Log.w(TAG, "Erreur fetch Firestore: ${e.message}")
+        }
+    }
+
+    private fun notifyWidgetUpdate() {
+        try {
+            com.nulltrack.widget.NullTrackWidgetProvider.updateAllWidgets(context)
+        } catch (e: Exception) {
+            context.sendBroadcast(Intent("com.nulltrack.widget.ACTION_REFRESH").setPackage(context.packageName))
         }
     }
 
@@ -138,67 +238,14 @@ class DeparturesRepository private constructor(private val context: Context) {
         }
     }
 
-    private fun getFallbackDepartures(): List<TrainDeparture> {
-        return listOf(
-            TrainDeparture(
-                id = "mock_1",
-                missionCode = "PORO",
-                destination = "Paris Montparnasse",
-                direction = "Paris-Montparnasse",
-                aimedTime = "08:12",
-                expectedTime = "08:12",
-                platform = "2B",
-                status = DepartureStatus.CANCELLED,
-                statusLabel = "Supprimé",
-                delayMinutes = 0,
-                isCancelled = true
-            ),
-            TrainDeparture(
-                id = "mock_2",
-                missionCode = "POMA",
-                destination = "Paris Montparnasse",
-                direction = "Paris-Montparnasse",
-                aimedTime = "08:27",
-                expectedTime = "08:33",
-                platform = "2B",
-                status = DepartureStatus.DELAYED,
-                statusLabel = "+6 min",
-                delayMinutes = 6,
-                isCancelled = false
-            ),
-            TrainDeparture(
-                id = "mock_3",
-                missionCode = "PORO",
-                destination = "Paris Montparnasse",
-                direction = "Paris-Montparnasse",
-                aimedTime = "08:42",
-                expectedTime = "08:42",
-                platform = "2B",
-                status = DepartureStatus.ON_TIME,
-                statusLabel = "À l'heure",
-                delayMinutes = 0,
-                isCancelled = false
-            ),
-            TrainDeparture(
-                id = "mock_4",
-                missionCode = "ROPO",
-                destination = "Rambouillet",
-                direction = "Banlieue",
-                aimedTime = "08:45",
-                expectedTime = "08:45",
-                platform = "1B",
-                status = DepartureStatus.ON_TIME,
-                statusLabel = "À l'heure",
-                delayMinutes = 0,
-                isCancelled = false
-            )
-        )
-    }
-
     companion object {
         private const val TAG = "DeparturesRepository"
+        private const val PREFS_NAME = "null_track_departures_cache"
+        private const val KEY_DEPARTURES_JSON = "departures_json"
+        private const val KEY_LAST_UPDATED = "last_updated"
         private const val COLLECTION_LIVE_STATUS = "live_status"
         private const val DOC_DEPARTURES = "departures_meudon"
+        private const val BACKEND_DEPARTURES_URL = "https://null-track-monitor-ti3svqykia-ew.a.run.app/departures?fresh=true"
 
         @Volatile
         private var instance: DeparturesRepository? = null

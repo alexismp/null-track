@@ -19,7 +19,45 @@ data class TrainDeparture(
     val delayMinutes: Int,
     val isCancelled: Boolean
 ) {
+    fun toMap(): Map<String, Any?> = mapOf(
+        "id" to id,
+        "mission_code" to missionCode,
+        "destination" to destination,
+        "direction" to direction,
+        "aimed_time" to aimedTime,
+        "expected_time" to expectedTime,
+        "platform" to platform,
+        "status" to status.name,
+        "status_label" to statusLabel,
+        "delay_minutes" to delayMinutes,
+        "is_cancelled" to isCancelled
+    )
+
+    fun toJsonObject(): org.json.JSONObject {
+        return org.json.JSONObject().apply {
+            put("id", id)
+            put("mission_code", missionCode)
+            put("destination", destination)
+            put("direction", direction)
+            put("aimed_time", aimedTime)
+            put("expected_time", expectedTime)
+            put("platform", platform)
+            put("status", status.name)
+            put("status_label", statusLabel)
+            put("delay_minutes", delayMinutes)
+            put("is_cancelled", isCancelled)
+        }
+    }
+
     companion object {
+        fun fromJsonObject(obj: org.json.JSONObject): TrainDeparture {
+            val map = mutableMapOf<String, Any?>()
+            obj.keys().forEach { key ->
+                map[key] = obj.opt(key)
+            }
+            return fromMap(map)
+        }
+
         fun fromMap(map: Map<String, Any?>): TrainDeparture {
             val id = (map["id"] as? String) ?: ""
             val mission = (map["mission_code"] as? String) ?: ""

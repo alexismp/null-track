@@ -34,7 +34,7 @@ fun DeparturesSheet(
     onDismiss: () -> Unit,
     onRefresh: () -> Unit
 ) {
-    var selectedFilter by remember { mutableStateOf("Montparnasse") } // "Montparnasse", "Tous", "Banlieue"
+    var selectedFilter by remember { mutableStateOf("Montparnasse") }
 
     val filteredDepartures = remember(departures, selectedFilter) {
         when (selectedFilter) {
@@ -63,7 +63,7 @@ fun DeparturesSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp)
+                .padding(bottom = 28.dp)
         ) {
             // En-tête
             Row(
@@ -74,7 +74,7 @@ fun DeparturesSheet(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(40.dp)
                             .clip(CircleShape)
                             .background(TransilienN),
                         contentAlignment = Alignment.Center
@@ -83,20 +83,20 @@ fun DeparturesSheet(
                             text = "N",
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp
+                            fontSize = 20.sp
                         )
                     }
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
                             text = "Gare de Meudon",
                             fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
+                            fontSize = 20.sp,
                             color = TextPrimary
                         )
                         Text(
                             text = "Prochains départs • ${lastUpdated ?: "Chargement..."}",
-                            fontSize = 12.sp,
+                            fontSize = 14.sp,
                             color = TextSecondary
                         )
                     }
@@ -106,9 +106,9 @@ fun DeparturesSheet(
                     IconButton(onClick = onRefresh, enabled = !isLoading) {
                         if (isLoading) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
+                                modifier = Modifier.size(22.dp),
                                 color = TransilienN,
-                                strokeWidth = 2.dp
+                                strokeWidth = 2.5.dp
                             )
                         } else {
                             Icon(
@@ -124,7 +124,7 @@ fun DeparturesSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             // Badges récapitulatifs (Annulés, Retardés, À l'heure)
             Row(
@@ -155,7 +155,7 @@ fun DeparturesSheet(
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             // Filtres de direction
             Row(
@@ -165,7 +165,7 @@ fun DeparturesSheet(
                 FilterChip(
                     selected = selectedFilter == "Montparnasse",
                     onClick = { selectedFilter = "Montparnasse" },
-                    label = { Text("Vers Paris (Montparnasse)", fontSize = 12.sp) },
+                    label = { Text("Vers Paris (Montparnasse)", fontSize = 14.sp) },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = TransilienN,
                         selectedLabelColor = Color.White
@@ -174,7 +174,7 @@ fun DeparturesSheet(
                 FilterChip(
                     selected = selectedFilter == "Tous",
                     onClick = { selectedFilter = "Tous" },
-                    label = { Text("Tous les trains", fontSize = 12.sp) },
+                    label = { Text("Tous", fontSize = 14.sp) },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = TransilienN,
                         selectedLabelColor = Color.White
@@ -183,7 +183,7 @@ fun DeparturesSheet(
                 FilterChip(
                     selected = selectedFilter == "Banlieue",
                     onClick = { selectedFilter = "Banlieue" },
-                    label = { Text("Vers Banlieue (Paris ➔ Meudon)", fontSize = 12.sp) },
+                    label = { Text("Vers Banlieue", fontSize = 14.sp) },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = TransilienN,
                         selectedLabelColor = Color.White
@@ -191,7 +191,7 @@ fun DeparturesSheet(
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             if (filteredDepartures.isEmpty()) {
                 Box(
@@ -205,13 +205,13 @@ fun DeparturesSheet(
                             imageVector = Icons.Default.DirectionsTransit,
                             contentDescription = null,
                             tint = TextSecondary,
-                            modifier = Modifier.size(48.dp)
+                            modifier = Modifier.size(52.dp)
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                         Text(
                             text = "Aucun passage prévu pour cette direction.",
                             color = TextSecondary,
-                            fontSize = 14.sp
+                            fontSize = 15.sp
                         )
                     }
                 }
@@ -241,19 +241,20 @@ fun StatusSummaryChip(
         colors = CardDefaults.cardColors(containerColor = containerColor)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = "$count",
                 fontWeight = FontWeight.Bold,
-                fontSize = 13.sp,
+                fontSize = 15.sp,
                 color = textColor
             )
-            Spacer(modifier = Modifier.width(4.dp))
+            Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = label,
-                fontSize = 12.sp,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
                 color = textColor
             )
         }
@@ -279,14 +280,14 @@ fun DepartureCard(departure: TrainDeparture) {
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = cardBg),
         border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(borderColor))
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -298,45 +299,45 @@ fun DepartureCard(departure: TrainDeparture) {
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
                             .background(if (isCancelled) Color(0xFFB71C1C) else TransilienN)
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {
                         Text(
                             text = departure.missionCode.ifBlank { "N" },
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp
+                            fontSize = 14.sp
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
 
                     Text(
                         text = departure.destination,
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 15.sp,
+                        fontSize = 17.sp,
                         color = TextPrimary
                     )
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (departure.platform.isNotBlank()) {
                         Text(
                             text = "Voie ${departure.platform}",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
                             color = TextSecondary
                         )
                         Text(
                             text = " • ",
-                            fontSize = 12.sp,
+                            fontSize = 14.sp,
                             color = TextSecondary
                         )
                     }
                     Text(
-                        text = "Départ prévu : ${departure.aimedTime}",
-                        fontSize = 12.sp,
+                        text = "Prévu : ${departure.aimedTime}",
+                        fontSize = 14.sp,
                         color = TextSecondary
                     )
                 }
@@ -347,74 +348,74 @@ fun DepartureCard(departure: TrainDeparture) {
                 if (isCancelled) {
                     Text(
                         text = departure.aimedTime,
-                        fontSize = 18.sp,
+                        fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFFB71C1C),
                         textDecoration = TextDecoration.LineThrough
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
                             .background(Color(0xFFC62828))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {
                         Text(
                             text = "ANNULÉ",
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp
+                            fontSize = 13.sp
                         )
                     }
                 } else if (isDelayed) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = departure.aimedTime,
-                            fontSize = 13.sp,
+                            fontSize = 15.sp,
                             color = TextSecondary,
                             textDecoration = TextDecoration.LineThrough
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = departure.expectedTime,
-                            fontSize = 18.sp,
+                            fontSize = 22.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFFE65100)
                         )
                     }
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
                             .background(Color(0xFFEF6C00))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {
                         Text(
                             text = departure.statusLabel,
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp
+                            fontSize = 13.sp
                         )
                     }
                 } else {
                     Text(
                         text = departure.aimedTime,
-                        fontSize = 18.sp,
+                        fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF2E7D32)
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
                             .background(Color(0xFF2E7D32))
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {
                         Text(
                             text = "À L'HEURE",
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp
+                            fontSize = 13.sp
                         )
                     }
                 }

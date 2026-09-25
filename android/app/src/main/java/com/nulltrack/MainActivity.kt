@@ -31,6 +31,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -101,6 +102,14 @@ class MainActivity : ComponentActivity() {
 
                 var showSettingsSheet by remember { mutableStateOf(false) }
 
+                val isMonitoringActive = schedule.isMonitoringActiveNow()
+                LaunchedEffect(isMonitoringActive) {
+                    if (isMonitoringActive) {
+                        Log.d(TAG, "Surveillance active détectée : rafraîchissement immédiat des trains (force=true)")
+                        departuresRepository.refresh(force = true)
+                    }
+                }
+
                 HomeScreen(
                     schedule = schedule,
                     departures = departures,
@@ -111,7 +120,7 @@ class MainActivity : ComponentActivity() {
                     onTriggerQuickMonitoring = { duration, direction ->
                         scheduleRepository.resumeNow()
                         scheduleRepository.triggerQuickMonitoring(duration, direction)
-                        departuresRepository.refresh()
+                        departuresRepository.refresh(force = true)
                         com.nulltrack.widget.NullTrackWidgetProvider.updateAllWidgets(applicationContext)
                         val dirLabel = if (direction == "TO_PARIS") "Meudon ➔ Paris" else "Paris ➔ Meudon"
                         Toast.makeText(
@@ -169,14 +178,17 @@ class MainActivity : ComponentActivity() {
 
     private fun handleOpenDeparturesIntent(intent: Intent?) {
         if (intent?.getBooleanExtra(EXTRA_OPEN_DEPARTURES, false) == true) {
-            departuresRepository.refresh()
+            val isMonitoringActive = scheduleRepository.schedule.value.isMonitoringActiveNow()
+            departuresRepository.refresh(force = isMonitoringActive)
             com.nulltrack.widget.NullTrackWidgetProvider.updateAllWidgets(applicationContext)
         }
     }
 
     override fun onResume() {
         super.onResume()
-        departuresRepository.refresh()
+        val isMonitoringActive = scheduleRepository.schedule.value.isMonitoringActiveNow()
+        Log.d(TAG, "MainActivity onResume (surveillance active: $isMonitoringActive)")
+        departuresRepository.refresh(force = isMonitoringActive)
         statsRepository.refresh()
         com.nulltrack.widget.NullTrackWidgetProvider.updateAllWidgets(applicationContext)
     }

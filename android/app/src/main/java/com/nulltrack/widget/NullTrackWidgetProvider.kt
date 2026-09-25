@@ -33,6 +33,9 @@ import com.nulltrack.data.DeparturesRepository
 import com.nulltrack.data.ScheduleConfig
 import com.nulltrack.data.ScheduleRepository
 import com.nulltrack.location.LocationHelper
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -60,6 +63,7 @@ class NullTrackWidgetProvider : AppWidgetProvider() {
 
         when (intent.action) {
             ACTION_TOGGLE_MONITORING -> {
+                val pendingResult = goAsync()
                 val repository = ScheduleRepository.getInstance(context)
                 val current = repository.schedule.value
 
@@ -69,6 +73,8 @@ class NullTrackWidgetProvider : AppWidgetProvider() {
                     if (current.isWindowActiveNow()) {
                         repository.pauseForToday()
                     }
+                    updateAllWidgets(context)
+                    pendingResult.finish()
                 } else {
                     // Reprise et activation de la surveillance
                     if (current.isPaused()) {
@@ -81,10 +87,25 @@ class NullTrackWidgetProvider : AppWidgetProvider() {
                         direction = detection.direction.code,
                         source = "widget"
                     )
-                }
 
-                DeparturesRepository.getInstance(context).refresh()
-                updateAllWidgets(context)
+                    // 1. Mise à jour immédiate du statut visuel du widget
+                    updateAllWidgets(context)
+
+                    // 2. Mise à jour asynchrone de la liste des trains dans l'application via backend (force = true)
+                    val departuresRepo = DeparturesRepository.getInstance(context)
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            departuresRepo.refreshSuspended(force = true)
+                            Log.d(TAG, "Départs rafraîchis avec succès après activation de la surveillance depuis le widget.")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Erreur rafraîchissement départs après activation widget: ${e.message}")
+                        } finally {
+                            // Rafraîchir à nouveau le widget (en cas de perturbation détectée sur les nouveaux départs)
+                            updateAllWidgets(context)
+                            pendingResult.finish()
+                        }
+                    }
+                }
             }
             ACTION_REFRESH, AppWidgetManager.ACTION_APPWIDGET_UPDATE, Intent.ACTION_BOOT_COMPLETED -> {
                 updateAllWidgets(context)

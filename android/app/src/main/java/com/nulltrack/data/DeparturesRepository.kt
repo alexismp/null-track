@@ -170,27 +170,31 @@ class DeparturesRepository private constructor(private val context: Context) {
 
     private var lastFetchTimestamp: Long = 0
 
-    fun refresh(force: Boolean = false) {
+    suspend fun refreshSuspended(force: Boolean = false): Boolean = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         if (!force && (now - lastFetchTimestamp < CLIENT_CACHE_TTL_MS) && _departures.value.isNotEmpty()) {
             Log.d(TAG, "Consultation ponctuelle : utilisation du cache local client (< ${CLIENT_CACHE_TTL_MS / 1000}s), aucun appel réseau émis.")
-            return
+            return@withContext true
         }
 
-        if (_isLoading.value) return
         _isLoading.value = true
-
-        scope.launch {
-            try {
-                val success = fetchFromBackend(force)
-                if (success) {
-                    lastFetchTimestamp = System.currentTimeMillis()
-                } else {
-                    fetchFromFirestore()
-                }
-            } finally {
-                _isLoading.value = false
+        return@withContext try {
+            val success = fetchFromBackend(force)
+            if (success) {
+                lastFetchTimestamp = System.currentTimeMillis()
+                true
+            } else {
+                fetchFromFirestore()
+                false
             }
+        } finally {
+            _isLoading.value = false
+        }
+    }
+
+    fun refresh(force: Boolean = false) {
+        scope.launch {
+            refreshSuspended(force)
         }
     }
 
